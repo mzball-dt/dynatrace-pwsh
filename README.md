@@ -17,6 +17,9 @@
         Use case: 
             - Providing a better system to add new cluster synthetic nodes - currently there's no UI
 
+### get-tenantTokens.ps1
+    For auditing Tokens available in a given Dynatrace Tenant
+
 ### run-clusterWide.ps1
     Powershell script for running arbitary code against a collection of Dynatrace tenants.
         Use case: 
