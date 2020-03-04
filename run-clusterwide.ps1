@@ -37,6 +37,9 @@
             Added input checks
             Added -help switch
             script block now has access to the env:dtenv and env:dttoken envvars
+        0.0.3
+            Script block no starts in the same directory as the current shell
+            Added -tenantsCSVFile for if someone wants to specify an alternate place the tenant data is stored
 #>
 
 PARAM (
@@ -47,6 +50,9 @@ PARAM (
     # The Script block to execute for each tenant
     [Parameter(ValueFromPipeline = $true)][scriptblock] $ScriptBlock,
     
+    # External CSV list of Dynatrace Tenants
+    [String] $tenantsCSVFile,
+
     # Use this switch to list the internal tenants (w/o tokens)
     [switch] $list,
 
@@ -73,7 +79,12 @@ $completeTenantList_text = @"
 Name,Environment,token
 "@
 
-$tenantList = $completeTenantList_text | ConvertFrom-Csv -Delimiter ','
+$tenantList = if ($script:tenantsCSVFile -and (Test-Path $script:tenantsCSVFile)) {
+    get-content -Raw -Path $script:tenantsCSVFile | ConvertFrom-Csv -Delimiter ','
+} else {
+    $completeTenantList_text | ConvertFrom-Csv -Delimiter ','
+}
+
 
 if ($tenantList.length -eq 0) {
     write-host "The internal tenantlist CSV string is empty. No tenants to run against." -ForegroundColor Red
@@ -160,6 +171,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs = 8, $dela
     ForEach ($Job in Get-Job) {
         Write-Progress -Activity $Job.Name -ID $Job.ID -ParentId $_tp -Complete
     }
+    write-host ''
     write-host "[END] Managing Job Execution"
 }
 
@@ -183,6 +195,7 @@ foreach ($t in $tenantList) {
 `$env:dttoken = `$_token = '$($t.token)';
 
 # CD to the current directory
+Set-Location $(Get-Location)
 "@)
     $jobQueue.Enqueue($($t.name, $prefilledVariables, $script:ScriptBlock))
 }
