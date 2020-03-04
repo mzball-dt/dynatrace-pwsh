@@ -7,12 +7,18 @@
 
         There is currently no checking done on inputs. Hopefully the Dynatrace server API will provide enough of an error.
 
-        Future plans: 
-            - Support timeperiod (currently stuck at last 2 hours)
-
     .Notes
         Author: Michael Ball
-        Version: 1.0.0
+        Version: 1.1.0
+
+        ChangeLog
+            1.0.0 
+                MVP - Things work
+            1.1.0
+                - Added -periodType and timePeriod to specify time for reported data. 
+                - Added pageSize to map to the dt api pagesize var
+                - Minimal cleanup/checking of dtenv input (they come in all shapes and sizes)
+                - Removed the return as a format-table -- this was a bad idea, users should be the one parsing the output to format-table
 
     .Example
         ./invoke-usqlRequest.ps1 -dtenv id.live.dynatrace.com -token $(get-content token.file) -USQL 'select city from usersession'
@@ -29,11 +35,33 @@
 #>
 
 param(
+    # The Dynatrace environment to query - this is the 'homepage' of the target eg. https://lasjdh3.live.dynatrace.com/ or https://dynatrace-managed.com/e/UUID
     [Parameter(Mandatory=$true)][String]$dtenv,
+    # The token to query the environment with - much have User Session access
     [Parameter(Mandatory=$true)][String]$token,
+    # The USQL Query to run against the cluster
     [Parameter(Mandatory=$true)][String]$USQL,
+    # What period length should be reported
+    [ValidateSet('minute','hour','day', 'week')][string]$periodType = 'hour',
+    # How many of these time periods back should be requested
+    [String]$timePeriod = 2,
+    # Number of results to pull back
+    [int]$pageSize = 500,
+    
+    # Export the collected USQL to csv
     [String]$OutFile
 )
+
+function convertTo-jsDate($date) {
+    return [Math]::Floor(1000 * (Get-Date ($date) -UFormat %s))
+}
+
+$timePeriodHash = @{
+    minute = 1000*60;
+    hour = 1000*60*60;
+    day = 1000*60*60*24;
+    week = 1000*60*60*24*7;
+}
 
 # custom policy required required for old pwsh versions and bad SSLs
 if ($PSVersionTable.PSVersion.Major -lt 6) {
@@ -70,14 +98,23 @@ $headers = @{
     "Content-Type" = "application/json"
 }
 
-# create a baseURL for the API call
-$baseURL = "https://$script:dtenv/api/v1/userSessionQueryLanguage/table"
+# Do some clean up on baseURL and then prep for the API call
+$baseURL = $script:dtenv
+if ($baseURL[$baseURL.Length-1] -eq '/') {$baseURL = $baseURL.Substring(0, $baseURL.Length-2)}
+if ($baseURL -notmatch '^https?://') {$baseURL = "https://$baseURL"}
+$baseURL = "$baseURL/api/v1/userSessionQueryLanguage/table"
+
+# Add the time and other params
+$now = convertTo-jsDate ([datetime]::UtcNow)
+$start = $now - $timePeriodHash[$script:periodType] * $script:timePeriod
+
+$baseURL = $baseURL + "?startTimestamp=$start&endTimestamp=$now&pageSize=$script:pageSize"
  
 # Encode the query (required by the call)
 $query = [System.Web.HttpUtility]::UrlEncode($script:USQL) -replace '\+', '%20'
  
 # create the end URI
-$uri = "$baseURL`?query=$query"
+$uri = "$baseURL`&query=$query"
 write-host $uri -ForegroundColor Cyan
 
 # make the call, being aware of different pwsh versions
@@ -98,10 +135,16 @@ Foreach ($row in $response.values) {
    
     $data += $_row
 }
- 
+
+# If we need to output to file
 if ($script:outfile) {
-    write-host "Writing to csv table to $script:outfile" -ForegroundColor red
+    if (!(Split-Path $script:outfile| Test-Path -PathType Container)) {
+        New-Item -Path (Split-Path $script:outfile) -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
+    }
+    $outputFile = New-Item -Path $script:outfile -Force
     $data | ConvertTo-Csv -NoTypeInformation | out-file -FilePath $script:outfile
+    write-host "Written to csv table to $($outputFile.fullname)" -ForegroundColor Green
 }
 
-$data | Format-Table
+# Output
+$data
