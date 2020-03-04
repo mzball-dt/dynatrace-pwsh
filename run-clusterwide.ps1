@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Helper script for running tenant targeted scripts against all tenants in a Dynatrace Managed Cluster
+    Helper script for running tenant targeted scripts against collections of tenants (such as all tenants in a Dynatrace Managed Cluster)
 
 .DESCRIPTION
     This script takes a scriptblock (arbitrary powershell code enclosed with '{}') and then executes in a parrallel-esque manner. The critical piece is that the code in the scriptblock has access to 2 dynamic variables that represent a tenant and a token for use with that tenant. This enables scripts written to retrieve/set data in 1 tenant to be run against all tenants in a dynatrace managed cluster.
@@ -26,36 +26,72 @@
 
 .NOTES
     Author: michael.ball
-    Version: 0.1 - 20200218
+    Version: 0.0.2 - 20200218
     Requirement: Powershell v5.0
 
     Changelog:
         MVP
             Uses the jobbing system from Strippy to create a scripting environment for each tenant with 2 prefilled variables
             Returns all output from the jobs run for each tenant as an array.
+        0.0.2
+            Added input checks
+            Added -help switch
+            script block now has access to the env:dtenv and env:dttoken envvars
 #>
 
 PARAM (
-    # The tenant from the list of internal tenants
+    # A specific tenant (by name) from the list of known tenants
     [String] $tenant,
+    # A specific tenant (by index) from the list of known tenants
     [int] $tenantIndex,
-    # use this switch to tell powershell to ignore ssl concerns
-    [switch] $nocheckcertificate,
+    # The Script block to execute for each tenant
     [Parameter(ValueFromPipeline = $true)][scriptblock] $ScriptBlock,
-    # Do the calc of HU/HostGroup (is non-simple)
+    
+    # Use this switch to list the internal tenants (w/o tokens)
+    [switch] $list,
+
+    # Maximum Concurrent Jobs managed by this script
     [int] $maxJobs = 8, 
-    [int] $JobDelay = 100
+    # Time between each loop of creating and checking jobs
+    [int] $JobDelay = 100,
+
+    # List detailed help
+    [switch] $help,    
+    # use this switch to tell powershell to ignore ssl concerns
+    [switch] $nocheckcertificate
 )
+
+# Help flag checks
+if ($h -or $help) {
+    Get-Help $(join-path $(Get-Location) $MyInvocation.MyCommand.Name) -Detailed
+    exit 0
+}
+
 
 # A csv styled list of environment URLs w/ tokens that have base permissions
 $completeTenantList_text = @"
-name,environment,token
+Name,Environment,token
 "@
 
 $tenantList = $completeTenantList_text | ConvertFrom-Csv -Delimiter ','
 
-if ($tenantList.length -lt 1) {
-    write-error "The internal tenantlist CSV string is empty. No tenants to run against."
+if ($tenantList.length -eq 0) {
+    write-host "The internal tenantlist CSV string is empty. No tenants to run against." -ForegroundColor Red
+    exit
+}
+
+if ($script:list) {
+    Write-host "Internal tenantlist contains the following:"
+    $tenantList | 
+    ForEach-Object { $i } { $_ | Add-Member -Type NoteProperty -Name 'Index' -Value ($i++) -PassThru } | 
+    Select-Object -property index, name, environment | 
+    Format-table -AutoSize
+    exit
+}
+
+if ( -not $script:ScriptBlock) {
+    write-host -ForegroundColor Red "No Script block was provided - nothing happened"
+    exit
 }
 
 $_tp = 7856413
@@ -130,9 +166,10 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs = 8, $dela
 #filter tenant list if necessary
 if ( $tenant ) {
     $tenantList = $tenantList | Where-Object -Property name -eq -Value $tenant
-} elseif ( $tenantIndex ) {
+}
+elseif ( $tenantIndex ) {
     # index is valid
-    If (0..($tenantList.length-1) -notcontains $tenantIndex) {
+    If (0..($tenantList.length - 1) -notcontains $tenantIndex) {
         Write-Error "Invalid $tenantIndex."
         Exit # return early
     }
@@ -141,7 +178,12 @@ if ( $tenant ) {
 
 $jobQueue = New-Object System.Collections.Queue
 foreach ($t in $tenantList) {
-    $prefilledVariables = [scriptblock]::Create("`$_env = '$($t.environment)'; `$_token = '$($t.token)'")
+    $prefilledVariables = [scriptblock]::Create(@"
+`$env:dtenv = `$_env = '$($t.environment)'; 
+`$env:dttoken = `$_token = '$($t.token)';
+
+# CD to the current directory
+"@)
     $jobQueue.Enqueue($($t.name, $prefilledVariables, $script:ScriptBlock))
 }
 
