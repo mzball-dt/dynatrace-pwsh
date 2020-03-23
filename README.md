@@ -20,6 +20,9 @@
 ### get-tenantTokens.ps1
     For auditing Tokens available in a given Dynatrace Tenant
 
+## get-tenantDashboards.ps1
+    For auditing or reporting of who has created/shared dashboards in a given Dynatrace Tenant
+
 ### run-clusterWide.ps1
     Powershell script for running arbitary code against a collection of Dynatrace tenants.
         Use case: 
