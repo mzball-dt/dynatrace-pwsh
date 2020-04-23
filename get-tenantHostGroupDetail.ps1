@@ -48,7 +48,7 @@
     Changelog
         0.3
             Further steps towards a unified framework/format for these scripts
-                - nocheckcompatability (turns off version, cluster type and token perms checks)
+                - noCheckCompatibility (turns off version, cluster type and token perms checks)
             Processes out the string version of 'agentVersion'
             Checks token for required perms (based on script:tokenPermissionRequirements)
             Updated input params names
@@ -74,7 +74,7 @@ PARAM (
     # Prints Help output
     [Alias('h')][switch] $help,
     # use this switch to tell this script to not check token or cluster viability
-    [switch] $noCheckCompatability,
+    [switch] $noCheckCompatibility,
     # use this switch to tell powershell to ignore ssl concerns
     [switch] $noCheckCertificate,
 
@@ -110,25 +110,7 @@ if ($script:dtenv[$script:dtenv.Length - 1] -eq '/') {
     write-host -ForegroundColor DarkYellow -Object "WARNING: Removed trailing '/' from dtenv input"
 }
 
-<#
-    Determine what type environment we have? This script will only work on tenants 
-    
-    SaaS tenant = https://*.live.dynatrace.com
-    Managed tenant = https://*/e/UUID
-    Managed Cluster = https://*
-#>
-$envType = 'cluster'
-if ($script:dtenv -like "*.live.dynatrace.com") {
-    $envType = 'env'
-} elseif ($script:dtenv -like "http*://*/e/*") {
-    $envType = 'env'
-}
-
-# Script won't work on a cluster
-if ($envType -eq 'cluster') {
-    write-error "'$script:dtenv' looks like an invalid URL (and Clusters are not supported by this script)"
-    return
-}
+$baseURL = "$script:dtenv/api/v1"
 
 # Setup Network settings to work from less new setups
 if ($nocheckcertificate) {
@@ -164,26 +146,46 @@ $headers = @{
     "Content-Type" = "application/json; charset=utf-8"
 }
 
-$baseURL = "$script:dtenv/api/v1"
-$uri = "$baseURL/config/clusterversion"
+if (!$noCheckCompatibility) {
+    <#
+        Determine what type environment we have? This script will only work on tenants 
+        
+        SaaS tenant = https://*.live.dynatrace.com
+        Managed tenant = https://*/e/UUID
+        Managed Cluster = https://*
+    #>
+    $envType = 'cluster'
+    if ($script:dtenv -like "*.live.dynatrace.com") {
+        $envType = 'env'
+    } elseif ($script:dtenv -like "http*://*/e/*") {
+        $envType = 'env'
+    }
 
-# Environment version check - cancel out if too old 
-Write-Host -ForegroundColor cyan -Object "Cluster Version Check: $uri"
-$res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri 
-$envVersion = $res.version -split '\.'
-if ($envVersion -and ([int]$envVersion[0]) -ne 1 -and ([int]$envVersion[1]) -lt 176) {
-    write-host "Failed Environment version check - Expected: > 1.176 - Got: $($res.version)"
-    return
-}
+    # Script won't work on a cluster
+    if ($envType -eq 'cluster') {
+        write-error "'$script:dtenv' looks like an invalid URL (and Clusters are not supported by this script)"
+        return
+    }
+    
+    # Environment version check - cancel out if too old 
+    $uri = "$baseURL/config/clusterversion"
+    Write-Host -ForegroundColor cyan -Object "Cluster Version Check: $uri"
+    $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri 
+    $envVersion = $res.version -split '\.'
+    if ($envVersion -and ([int]$envVersion[0]) -ne 1 -and ([int]$envVersion[1]) -lt 176) {
+        write-host "Failed Environment version check - Expected: > 1.176 - Got: $($res.version)"
+        return
+    }
 
-# Token has required Perms Check - cancel out if it doesn't have what's required
-$uri = "$baseURL/tokens/lookup"
-Write-Host -ForegroundColor cyan -Object "Token Permissions Check: $uri"
-$res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:token`"}"
-if ($res.scopes -notcontains $script:tokenPermissionRequirements) {
-    write-host "Failed Token Permission check. Token requires: $($script:tokenPermissionRequirements -join ',')"
-    write-host "Token provided only had: $($res.scopes -join ',')"
-    return
+    # Token has required Perms Check - cancel out if it doesn't have what's required
+    $uri = "$baseURL/tokens/lookup"
+    Write-Host -ForegroundColor cyan -Object "Token Permissions Check: $uri"
+    $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:token`"}"
+    if ($res.scopes -notcontains $script:tokenPermissionRequirements) {
+        write-host "Failed Token Permission check. Token requires: $($script:tokenPermissionRequirements -join ',')"
+        write-host "Token provided only had: $($res.scopes -join ',')"
+        return
+    }
 }
 
 function get-shrunkAgentVersion ([Parameter(ValueFromPipeline = $true)]$agentVersionObj) {
