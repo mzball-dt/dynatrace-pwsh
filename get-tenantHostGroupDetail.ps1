@@ -181,7 +181,7 @@ if (!$noCheckCompatibility) {
     $uri = "$baseURL/tokens/lookup"
     Write-Host -ForegroundColor cyan -Object "Token Permissions Check: $uri"
     $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:token`"}"
-    if ($res.scopes -notcontains $script:tokenPermissionRequirements) {
+    if (($script:tokenPermissionRequirements | Where-Object {$_ -notin $res.scopes}).count) {
         write-host "Failed Token Permission check. Token requires: $($script:tokenPermissionRequirements -join ',')"
         write-host "Token provided only had: $($res.scopes -join ',')"
         return
