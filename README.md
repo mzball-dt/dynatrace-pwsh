@@ -23,6 +23,13 @@
 ## get-tenantDashboards.ps1
     For auditing or reporting of who has created/shared dashboards in a given Dynatrace Tenant
 
+## get-tenantHostGroupDetail.ps1
+    For reporting on all hosts in an environment, particularly for HU consumption by HostGroup
+        Use case: 
+            - What is the distribution of HU in my environment?
+            - What is the newest and oldest Agent version running in my environment?
+            - What Host Groups have the oldest agent version?
+
 ### run-clusterWide.ps1
     Powershell script for running arbitary code against a collection of Dynatrace tenants.
         Use case: 
