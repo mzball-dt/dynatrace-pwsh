@@ -46,6 +46,8 @@
     Requirement: Powershell v5.0
 
     Changelog
+        0.3.1
+            Updated Script to include monitoringMode in the standard output - Note: I've not updated the examples
         0.3
             Further steps towards a unified framework/format for these scripts
                 - noCheckCompatibility (turns off version, cluster type and token perms checks)
@@ -204,7 +206,7 @@ function Fetch-HostData($env, $token) {
     $uri = "$baseURL/entity/infrastructure/hosts?relativeTime=2hours&includeDetails=true"
     write-host -ForegroundColor cyan "Host Entity information request: $uri"
     $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri
-    $out = $res | Select-Object -Property displayName,@{L="tags"; E={$_.tags.key}},@{L="hostGroup"; E={$_.hostGroup.name}},consumedHostUnits,osType,entityID,@{L='agentVersion'; E={$_.agentVersion | get-shrunkAgentVersion}}
+    $out = $res | Select-Object -Property displayName,@{L="tags"; E={$_.tags.key}},@{L="hostGroup"; E={$_.hostGroup.name}},consumedHostUnits,monitoringMode,osType,entityID,@{L='agentVersion'; E={$_.agentVersion | get-shrunkAgentVersion}}
     $out
 }
 
