@@ -20,6 +20,12 @@
 ### get-tenantTokens.ps1
     For auditing Tokens available in a given Dynatrace Tenant
 
+### get-tenantTokenDetail.ps1
+    For when you only want information about a specific tenant token
+        Use case: 
+            - Checking scopes assigned to a token
+            - Checking scopes of tokens listed for use by run-clusterwide.ps1.
+
 ## get-tenantDashboards.ps1
     For auditing or reporting of who has created/shared dashboards in a given Dynatrace Tenant
 
@@ -38,6 +44,11 @@
             - Gathering Audit logs from all tenants in a cluster or customer environment
             - Creating a new token for use by a data ingestion group across the customer environment
             - Use any of the other scripts above across multiple tenants
+
+## measure-HUperProperty.ps1
+    Pipeline script for performing simple (but irritating to type out) calculations on Host Meta-data
+        Use case: 
+            - How many HU in my tenant/cluster/grouping per OS/MonitoringType/environment
 
 ## Goals
 
