@@ -26,20 +26,25 @@
 
 .NOTES
     Author: michael.ball
-    Version: 0.0.2 - 20200218
+    Version: 1.0.0 - 20200504
     Requirement: Powershell v5.0
 
-    Changelog:
-        MVP
-            Uses the jobbing system from Strippy to create a scripting environment for each tenant with 2 prefilled variables
-            Returns all output from the jobs run for each tenant as an array.
+    Changelog:  
+        1.0.0
+            Don't know why this wasn't v1? 
+            Now also passes through the name provided in the CSV structure for better naming reasons
+                - $_envname and $env:dtenvname are now available to child scripts.      
+        0.0.3
+            Script block no starts in the same directory as the current shell
+            Added -tenantsCSVFile for if someone wants to specify an alternate place the tenant data is stored
         0.0.2
             Added input checks
             Added -help switch
             script block now has access to the env:dtenv and env:dttoken envvars
-        0.0.3
-            Script block no starts in the same directory as the current shell
-            Added -tenantsCSVFile for if someone wants to specify an alternate place the tenant data is stored
+        MVP
+            Uses the jobbing system from Strippy to create a scripting environment for each tenant with 2 prefilled variables
+            Returns all output from the jobs run for each tenant as an array.
+
 #>
 
 PARAM (
@@ -106,6 +111,11 @@ if ( -not $script:ScriptBlock) {
 }
 
 $_tp = 7856413
+<#
+    x = new job checking loop
+    | = job completed
+    . = job started
+#>
 function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs = 8, $delay = 200) {
     write-host "[START] Managing Job Execution"
     write-information "Clearing all background jobs (again just in case)"
@@ -116,7 +126,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs = 8, $dela
     $totalJobs = $jobQ.count
     $ProgressInterval = 100 / $totalJobs
     # While there are still jobs to deploy or there are jobs still running
-    While ($jobQ.Count -gt 0 -or $(get-job -State "Running").count -gt 0) {
+   While ($jobQ.Count -gt 0 -or $(get-job -State "Running").count -gt 0) {
         $JobsRunning = $(Get-Job -State 'Running').count
         write-host 'x' -NoNewline
 
@@ -138,7 +148,7 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs = 8, $dela
                     write-host "|" -NoNewline
                     #Update total progress
                     $perc = $ProgressStart + $ProgressInterval * ($totalJobs - $jobQ.count)
-                    Write-Progress -Activity "Sanitising" -Id $_tp -PercentComplete $perc
+                    Write-Progress -Activity "Running" -Id $_tp -PercentComplete $perc
 
                     Write-Progress -Activity $Job.Name -Status $Progress.StatusDescription  -PercentComplete $Progress.PercentComplete -ID $Job.ID -ParentId $_tp -Complete
                     ## Clear all progress entries so we don't process it again
@@ -193,6 +203,7 @@ foreach ($t in $tenantList) {
     $prefilledVariables = [scriptblock]::Create(@"
 `$env:dtenv = `$_env = '$($t.environment)'; 
 `$env:dttoken = `$_token = '$($t.token)';
+`$env:dtenvname = `$_envname = '$($t.Name)';
 
 # CD to the current directory
 Set-Location $(Get-Location)
@@ -211,4 +222,3 @@ ForEach ($job in $jobs) {
 }
 
 $outputs
-
