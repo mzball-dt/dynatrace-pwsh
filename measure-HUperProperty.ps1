@@ -11,12 +11,13 @@
 
     Changelog: 
         v0.0.1 - MVP
-            Effectively MAP-REDUCES an array of Host property data.
+            Effectively MAP-REDUCEs an array of Host property data.
 
     Possible Future Features
     - Significant Error checking & failing out more generally
     - Make this more generically a map-reduce?
     - Support for more than just SUM
+    - output as csv format
 
 .EXAMPLE
     PS C:\Users\michael.ball\proj\utils> .\get-tenantHostGroupDetail.ps1 | .\measure-HUperProperty.ps1
