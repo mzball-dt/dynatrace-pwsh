@@ -41,6 +41,12 @@ Use case:
 - What is the newest and oldest Agent version running in my environment?
 - What Host Groups have the oldest agent version?
 
+### export-tenantConfig.ps1
+For exporting tenant configuration to disk for archiving or other purposes.
+    Use case: 
+        - Nightly tenant configuration dump to reduce risk of unwanted or mistaken changes
+        - Any reason you'd want to have a tenant-specific backup of configuration
+
 ### run-clusterWide.ps1
 Powershell script for running arbitary code against a collection of Dynatrace tenants.
 
