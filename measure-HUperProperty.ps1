@@ -7,14 +7,16 @@
 
 .NOTES
     Author: michael.ball
-    Version: 0.0.1 - 20200504
+    Version: 0.0.2 - 20200504
 
-    Changelog: 
-        v0.0.1 - MVP
+    Changelog:
+        0.0.2
+            Added the help switch
+            Changed output method to support csv and PSObject strings
+        0.0.1 - MVP
             Effectively MAP-REDUCEs an array of Host property data.
 
     Possible Future Features
-    - Significant Error checking & failing out more generally
     - Make this more generically a map-reduce?
     - Support for more than just SUM
     - output as csv format
@@ -63,10 +65,22 @@
 
 PARAM (
     [Parameter(ValueFromPipeline = $true)][array] $inputObject,
-    [String] $property = 'monitoringMode'
+    [String] $property = 'monitoringMode',
+
+    # Output as CSV
+    [switch] $outputCSV,
+
+    # Prints Help output
+    [Alias('h')][switch] $help
 )
 
 Begin {
+    # Help flag checks
+    if ($h -or $help) {
+        Get-Help $script:MyInvocation.MyCommand.Path -Detailed
+        exit 0
+    }
+
     $Hostdetails = @()
 }
 
@@ -77,12 +91,28 @@ Process {
 
 # Then Process it all at once
 End {
-    $Hostdetails | Group-Object -Property "$script:property" | ForEach-Object { $o = @{ } } {
+    # Check that the property being grouped by exists.
+    if ( $Hostdetails[0].$script:property -eq $null ) {
+        return Write-Error "Unable to find $script:property in input - unable to continue"
+    }
+
+    $output = $Hostdetails | Group-Object -Property "$script:property" | ForEach-Object { $o = @() } {
+        $_t = New-Object -TypeName psobject 
         if ($_.Group."$script:property" -ne $null) {
-            $o[([array]$_.group."$script:property")[0]] = ($_.group.consumedHostUnits | Measure-Object -sum).sum
+            $propertyInstance = ([array]$_.group."$script:property")[0]
+            $_t | Add-Member -MemberType NoteProperty -Name Value -Value $propertyInstance
+            $_t | Add-Member -MemberType NoteProperty -Name Sum -Value ($_.group.consumedHostUnits | Measure-Object -sum).sum
         }
         else {
-            $o['unlabelled'] = ($_.group.consumedHostunits | Measure-Object -Sum).sum
+            $_t | Add-Member -MemberType NoteProperty -Name Value -Value 'unlabelled'
+            $_t | Add-Member -MemberType NoteProperty -Name Sum -Value ($_.group.consumedHostunits | Measure-Object -Sum).sum
         }
+        $o += $_t
     } { $o }
+
+    if ($script:outputCSV) {
+        $output | ConvertTo-Csv
+    } else {
+        $output
+    }
 }
