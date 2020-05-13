@@ -14,11 +14,12 @@
     Version: 1.1.0
 
     ChangeLog
-        1.0.0 
-            MVP - Things work - basic script
         1.1.0
-            - Added -outfile
-            - Added export to stdout
+            Added -outfile
+            Added export to stdout
+        1.0.0 MVP
+            Things work - basic script
+
 
 .Example  
     ./get-tenantTokens.ps1 -dtenv "https://lasjdh3.live.dynatrace.com/" -token 'asdfu12312938' | format-table
