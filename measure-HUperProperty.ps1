@@ -7,22 +7,23 @@
 
 .NOTES
     Author: michael.ball
-    Version: 0.0.2 - 20200504
+    Version: 1.0.0 - 20200513
 
     Changelog:
+        1.0.0
+            Added sum, avg, min, max and allstats arguments
         0.0.2
             Added the help switch
-            Changed output method to support csv and PSObject strings
+            Changed output type to psobject[]
+            added outputcsv switch
         0.0.1 - MVP
             Effectively MAP-REDUCEs an array of Host property data.
 
     Possible Future Features
     - Make this more generically a map-reduce?
-    - Support for more than just SUM
-    - output as csv format
 
 .EXAMPLE
-    PS C:\Users\michael.ball\proj\utils> .\get-tenantHostGroupDetail.ps1 | .\measure-HUperProperty.ps1
+    .\get-tenantHostGroupDetail.ps1 | .\measure-HUperProperty.ps1
 
     Cluster Version Check: https://abc12334.live.dynatrace.com/api/v1/config/clusterversion
     Token Permissions Check: https://abc12334.live.dynatrace.com/api/v1/tokens/lookup
@@ -33,7 +34,7 @@
     FULL_STACK                     3.25
 
 .EXAMPLE
-    PS C:\Users\michael.ball\proj\utils> .\get-tenantHostGroupDetail.ps1 | .\measure-HUperProperty.ps1 -property displayName
+    .\get-tenantHostGroupDetail.ps1 | .\measure-HUperProperty.ps1 -property displayName
 
     Cluster Version Check: https://abc12334.live.dynatrace.com/api/v1/config/clusterversion
     Token Permissions Check: https://abc12334.live.dynatrace.com/api/v1/tokens/lookup
@@ -48,7 +49,7 @@
     Machine5                       0.25
 
 .EXAMPLE
-    PS C:\Users\michael.ball\proj\utils> .\run-clusterwide.ps1 -tenantsCSVFile .\testTenantList.csv -ScriptBlock { .\get-tenantHostGroupDetail.ps1 } | .\measure-HUperProperty.ps1 
+    .\run-clusterwide.ps1 -tenantsCSVFile .\testTenantList.csv -ScriptBlock { .\get-tenantHostGroupDetail.ps1 } | .\measure-HUperProperty.ps1 
 
     [START] Managing Job Execution
     x.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -61,11 +62,28 @@
     ----                           -----
     FULL_STACK                     3.25
 
+.EXAMPLE
+    .\run-clusterwide.ps1 -ScriptBlock { .\get-tenantHostGroupDetail.ps1 } -tenantsCSVFile .\testTenantList.csv | .\measure-HUperProperty.ps1 -allstats -outputCSV
+
+    [START] Managing Job Execution
+    x.xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    [END] Managing Job Execution
+    Cluster Version Check: https://abc12334.live.dynatrace.com/api/v1/config/clusterversion
+    Token Permissions Check: https://abc12334.live.dynatrace.com/api/v1/tokens/lookup
+    Host Entity information request: https://abc12334.live.dynatrace.com/api/v1/entity/infrastructure/hosts?relativeTime=2hours&includeDetails=true
+    "Value","Count","Sum","Average","Minimum","Maximum"
+    "FULL_STACK","5","3.25","0.65","0.25","2"
 #>
 
 PARAM (
     [Parameter(ValueFromPipeline = $true)][array] $inputObject,
     [String] $property = 'monitoringMode',
+
+    [switch] $sum,
+    [Alias('Average')][switch] $avg,
+    [Alias('Miniumum')][switch] $min,
+    [Alias('Maximum')][switch] $max,
+    [switch] $allstats,
 
     # Output as CSV
     [switch] $outputCSV,
@@ -101,12 +119,16 @@ End {
         if ($_.Group."$script:property" -ne $null) {
             $propertyInstance = ([array]$_.group."$script:property")[0]
             $_t | Add-Member -MemberType NoteProperty -Name Value -Value $propertyInstance
-            $_t | Add-Member -MemberType NoteProperty -Name Sum -Value ($_.group.consumedHostUnits | Measure-Object -sum).sum
         }
         else {
             $_t | Add-Member -MemberType NoteProperty -Name Value -Value 'unlabelled'
-            $_t | Add-Member -MemberType NoteProperty -Name Sum -Value ($_.group.consumedHostunits | Measure-Object -Sum).sum
         }
+        $_t | Add-Member -MemberType NoteProperty -Name Count -Value ($_.group.consumedHostUnits | Measure-Object).count
+        if ($script:sum -or $Script:allstats) { $_t | Add-Member -MemberType NoteProperty -Name Sum -Value ($_.group.consumedHostUnits | Measure-Object -sum).sum }
+        if ($script:avg -or $Script:allstats) { $_t | Add-Member -MemberType NoteProperty -Name Average -Value ($_.group.consumedHostunits | Measure-Object -Average).Average }
+        if ($script:min -or $Script:allstats) { $_t | Add-Member -MemberType NoteProperty -Name Minimum -Value ($_.group.consumedHostunits | Measure-Object -Minimum).Minimum }
+        if ($script:max -or $Script:allstats) { $_t | Add-Member -MemberType NoteProperty -Name Maximum -Value ($_.group.consumedHostunits | Measure-Object -Maximum).Maximum }
+
         $o += $_t
     } { $o }
 
