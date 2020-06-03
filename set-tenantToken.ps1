@@ -242,7 +242,7 @@ Process {
     # Edit what was provided and send it back
     else {
         if (!$script:id -and !$script:tokenValue) { return Write-Error "No Token ID or Value was provided to set/update" }
-        if ($script:expiryTimeValue -or $script:expiryTimeUnit) { Write-Warning "Expiry parameters are not supported for updates"}
+        if ($script:expiryTimeValue) { Write-Warning "Expiry parameters are not supported for updates"}
 
         if (!$script:id -and $script:tokenValue) {
             # IF we don't have the id - get it now - this will also give us the JSON
@@ -256,11 +256,16 @@ Process {
             $tokenJson = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri
         }
 
+        $tokenJson = $tokenJson | Select-Object -Property id,name,revoked,scopes
         # Make the changes that you want based on switches
         if ($script:name) { $tokenJson.name = $script:name }
         if ($script:scopes) { $tokenJson.scopes = $script:scopes }
         if ($script:revoked) { $tokenJson.revoked = $true }
         if ($script:active) { $tokenJson.revoked = $false }
+
+        $tokenJson
+
+        $tokenJson | convertTo-json
 
         # Send it back
         $uri = "$baseURL/tokens/$script:id"
