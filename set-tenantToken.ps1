@@ -3,19 +3,24 @@
     For configuring tokens available in a given Dynatrace Tenant
 
 .Description
-    Very simple script to pull back information about the tokens created in a dynatrace tenant.
+    Script to configure tokens in a Dynatrace tenant. Attempts to work as well as possible with other mzball-dt scripts via piping
 
     Possible Extensions: 
-        - Not squashing scopes?
-        - reducing the number of api requests this script performs (not currently possible)
+        - Extending Expiry
+        - More foot-bullet checking?
 
 .Notes
     Author: Michael Ball (extension) 
-    Version: 0.1 - 20200521
+    Version: 0.2 - 20200603
 
     ChangeLog
-        0.0.1
-
+        0.2
+        - Create Tokens
+            - Scope, Name, Expiry val/unit
+        - Update tokens
+            - scope, name, revoke-ness
+        - Delete tokens 
+        - Fairly sane error checking
 
 
 .Example ./set-tenantToken.ps1 -name 
@@ -29,20 +34,30 @@ PARAM (
     [Alias('dttoken')][ValidateNotNullOrEmpty()][string] $token = $env:dttoken,
 
     # Which Token are we setting?
-    [Parameter(ValueFromPipelineByPropertyName = $true)][Alias('TokenId')]$id,
-    [Parameter(ValueFromPipelineByPropertyName = $true)][String]$tokenValue,
+    [Parameter(ValueFromPipelineByPropertyName = $true)][Alias('TokenId')] $id,
+    [Parameter(ValueFromPipelineByPropertyName = $true)][String] $tokenValue,
     
     # The catch all for pushing things through
     [Parameter(ValueFromPipeline = $true)][psobject] $InputObject,
 
-    # Config for the token being set
-    [switch]$newToken,
-    [switch]$revoked,
-    [ValidateNotNullOrEmpty()][String]$name,
-    [ValidateNotNullOrEmpty()][String[]]$scopes,
+    # Create a new token from the input
+    [switch] $newToken,
+    # Mark the Token as Revoked
+    [switch] $revoked,
+    # Mark the Token as active (unrevoked)
+    [switch] $active,
+    # The UI-visible name of the token
+    [ValidateNotNullOrEmpty()][String] $name,
+    # The Token Permission Scopes this token has access to
+    [ValidateNotNullOrEmpty()][String[]] $scopes,
 
-    # Path to output a csv representation of the fetched data.
-    [string] $outfile,
+    # The number of units (default of seconds) before this token is automatically revoked (only for new tokens)
+    [Int] $expiryTimeValue,
+    # The unit used by -expiryTimeValue (only for new tokens)
+    [ValidateSet('MINUTES', 'SECONDS', 'HOURS')][String] $expiryTimeUnit = 'SECONDS',
+    
+    # Delete the Token specified
+    [switch] $delete,
 
     # Prints Help output
     [Alias('h')][switch] $help,
@@ -52,7 +67,7 @@ PARAM (
     [switch] $noCheckCertificate,
 
     # DO NOT USE - This is set by Script Author
-    [String[]]$script:tokenPermissionRequirements = ('DataExport', 'TenantTokenManagement')
+    [String[]] $script:tokenPermissionRequirements = ('DataExport', 'TenantTokenManagement')
 )
 
 BEGIN {
@@ -145,7 +160,7 @@ public static class TrustEverything
     
         # Environment version check - cancel out if too old 
         $uri = "$baseURL/config/clusterversion"
-        Write-Host -ForegroundColor cyan -Object "Cluster Version Check: $uri"
+        Write-Host -ForegroundColor cyan -Object "Cluster Version Check: GET $uri"
         $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri
         $envVersion = $res.version -split '\.'
         if ($envVersion -and ([int]$envVersion[0]) -ne 1 -and ([int]$envVersion[1]) -lt 176) {
@@ -155,7 +170,7 @@ public static class TrustEverything
 
         # Token has required Perms Check - cancel out if it doesn't have what's required
         $uri = "$baseURL/tokens/lookup"
-        Write-Host -ForegroundColor cyan -Object "Token Permissions Check: $uri"
+        Write-Host -ForegroundColor cyan -Object "Token Permissions Check: POST $uri"
         $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:token`"}"
         if (($script:tokenPermissionRequirements | Where-Object { $_ -notin $res.scopes }).count) {
             write-host "Failed Token Permission check. Token requires: $($script:tokenPermissionRequirements -join ',')"
@@ -176,21 +191,83 @@ public static class TrustEverything
     $uri = "$baseURL/tokens"
 }
 
-Process {
-    Write-host "Process"
+Process {    
+    # Created for 1.192
+    $validTokenPerms = @("AdvancedSyntheticIntegration", "AppMonIntegration", "CaptureRequestData", "DTAQLAccess", "DataExport", "DataImport", "DataPrivacy", "Davis", "DcrumIntegration", "DeploymentManagement", "DiagnosticExport", "DssFileManagement", "ExternalSyntheticIntegration", "InstallerDownload", "LogExport", "LogImport", "MemoryDump", "Mobile", "PluginUpload", "ReadAuditLogs", "ReadConfig", "ReadSyntheticData", "RestRequestForwarding", "RumBrowserExtension", "RumJavaScriptTagManagement", "SupportAlert", "TenantTokenManagement", "UserSessionAnonymization", "ViewDashboard", "WriteConfig", "WriteSyntheticData", "entities.read", "entities.write")
 
-    # IF we don't have the id - get it now - this will also give us the JSON
+    if (($script:scopes | Where-Object { $_ -notin $validTokenPerms }).count) {
+        $script:scopes | Where-Object { $_ -notin $validTokenPerms } | ForEach-Object {
+            Write-Error "Unknown/Invalid Token scope '$_'"
+        }
+        return
+    }
 
-    # Fetch the JSON with the id
+    # Create a new Token JSON from params
+    if ($script:newToken) {
+        if (!$script:scopes) { return Write-Error "New tokens must be created with scoping. Script is missing the -scopes parameter"; }
 
-    # Make the changes that you want based on switches
+        #Do we need an expiry section?
+        $expiryDetails = if ($script:expiryTimeValue) {
+            @"
+,
+"expiresIn": {
+    "value": "$script:expiryTimeValue",
+    "unit": "$script:expiryTimeUnit"
+}
+"@
+        }
+        else { "" }
 
-    # Send it back
+        # assemble the rest of the body
+        $reqBody = @"
+    {
+        "name": "$script:name",
+        "scopes": ["$($scopes -join '","')"]$expiryDetails
+    }
+"@
 
-    Write-host "$id $name $revoked"
-    write-host "$inputObject" -ForegroundColor Magenta
+        $uri = "$baseURL/tokens"
+        Write-host -ForegroundColor cyan -Object "Requesting creation of new token: POST $uri"
+        $res = Invoke-RestMethod -Method POST -Headers $headers -uri $uri -Body $reqBody -ErrorAction Stop
+        return $res
+    
+    # Delete the Token
+    } elseif ($script:delete) {
+        $uri = "$baseURL/tokens/$script:id"
+        Write-host -ForegroundColor cyan -Object "Permanently deleting token: DELETE $uri"
+        $res = Invoke-RestMethod -Method Delete -Headers $headers -uri $uri -Body $reqBody -ErrorAction Stop
+        return $res
+    }
+
+    # Edit what was provided and send it back
+    else {
+        if (!$script:id -and !$script:tokenValue) { return Write-Error "No Token ID or Value was provided to set/update" }
+        if ($script:expiryTimeValue -or $script:expiryTimeUnit) { Write-Warning "Expiry parameters are not supported for updates"}
+
+        if (!$script:id -and $script:tokenValue) {
+            # IF we don't have the id - get it now - this will also give us the JSON
+            $uri = "$baseURL/tokens/lookup"
+            Write-Host -ForegroundColor cyan -Object "Retrieving Token JSON from value: POST $uri"
+            $tokenJson = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:tokenValue`"}"
+        }
+        elseif ($script:id) {
+            $uri = "$baseURL/tokens/$script:id"
+            Write-Host -ForegroundColor cyan -Object "Retrieving Token JSON from ID: GET $uri"
+            $tokenJson = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri
+        }
+
+        # Make the changes that you want based on switches
+        if ($script:name) { $tokenJson.name = $script:name }
+        if ($script:scopes) { $tokenJson.scopes = $script:scopes }
+        if ($script:revoked) { $tokenJson.revoked = $true }
+        if ($script:active) { $tokenJson.revoked = $false }
+
+        # Send it back
+        $uri = "$baseURL/tokens/$script:id"
+        Write-Host -ForegroundColor cyan -Object "Update tenant token detail: PUT $uri"
+        $res = Invoke-RestMethod -Method PUT -Headers $headers -Uri $uri -Body ($tokenJson | ConvertTo-Json -Depth 5 -Compress)
+    }
 }
 
 End {
-    Write-Host "End"
 }
