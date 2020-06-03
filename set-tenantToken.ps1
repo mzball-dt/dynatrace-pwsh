@@ -266,6 +266,7 @@ Process {
         $uri = "$baseURL/tokens/$script:id"
         Write-Host -ForegroundColor cyan -Object "Update tenant token detail: PUT $uri"
         $res = Invoke-RestMethod -Method PUT -Headers $headers -Uri $uri -Body ($tokenJson | ConvertTo-Json -Depth 5 -Compress)
+        return $res
     }
 }
 
