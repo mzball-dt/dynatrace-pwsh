@@ -63,6 +63,18 @@ Pipeline script for performing simple (but irritating to type out) calculations 
 Use case: 
 - How many HU in my tenant/cluster/grouping per OS/MonitoringType/environment
 
+### get-tenantProblemFeed.ps1
+For reporting on all problems in an environment, particularly
+
+Use case: 
+- What are the problems report for an enviornment in the last X period?
+
+### templateScaffold.ps1
+Template for new scripts
+
+Use case: 
+- When writing new powershell scripts
+
 ## Goals
 
 * Have a single repo with utility scripts I use personally with Dynatrace.
