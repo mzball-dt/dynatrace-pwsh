@@ -41,6 +41,12 @@ Use case:
 - What is the newest and oldest Agent version running in my environment?
 - What Host Groups have the oldest agent version?
 
+### export-tenantConfig.ps1
+For exporting tenant configuration to disk for archiving or other purposes.
+    Use case: 
+        - Nightly tenant configuration dump to reduce risk of unwanted or mistaken changes
+        - Any reason you'd want to have a tenant-specific backup of configuration
+
 ### run-clusterWide.ps1
 Powershell script for running arbitary code against a collection of Dynatrace tenants.
 
@@ -56,6 +62,18 @@ Pipeline script for performing simple (but irritating to type out) calculations 
 
 Use case: 
 - How many HU in my tenant/cluster/grouping per OS/MonitoringType/environment
+
+### get-tenantProblemFeed.ps1
+For reporting on all problems in an environment, particularly
+
+Use case: 
+- What are the problems report for an enviornment in the last X period?
+
+### templateScaffold.ps1
+Template for new scripts
+
+Use case: 
+- When writing new powershell scripts
 
 ## Goals
 
