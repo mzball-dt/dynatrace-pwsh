@@ -1,15 +1,27 @@
 <#
     .Synopsis
-        For viewing or saving Dynatrace problem feed as Powershell tables and csv files
+        For viewing or saving a Dynatrace tenant problem feed as Powershell tables and csv files
+
     .Description
         This script is to extract the problems for an environment for designated entities and period.
         And also present in a powershell or csv format.
+
+        todo: 
+        - Add a human readable date as startTimeNice and endTimeNice
+        - Nicely order the $data prior to returning
+        - Option to fetch human readable name of the problem (for summarising options)
+        - support tags for filtering of problem feed
+
     .Notes
-        Author: Michael Ball, Adrian
+        Author: Adrian, Michael Ball
         Version: 1.0.0 - 16062020
         ChangeLog
             1.0.0 
                 MVP - Things work
+            1.0.1
+                Commenting - adding of todo list, 
+                Removal of stray output
+                show problem detail default is now false
             
     .Example
         ./get-tenantProblemFeed.ps1 -dtenv <env> -token <token> -periodType "week" -timePeriod 3 -outfile test.csv
@@ -44,7 +56,7 @@ PARAM (
     [switch] $noCheckCertificate,
 
     # Flag to expand the details of the problem feed
-    [bool] $expandDetail = $true,
+    [switch] $expandDetail,
     
     # String entity for tags to be used as a filter
     [string] $tags,
@@ -180,15 +192,11 @@ $timePeriodHash = @{
 ## Form the base of the url endpoint to be queried
 $baseURL = "$baseURL/problem/feed"
 
-$timePeriodHash[$script:periodType]
-
 # Add the time and other params
 $now = convertTo-jsDate ([datetime]::UtcNow)
 $start = $now - $timePeriodHash[$script:periodType] * $script:timePeriod
 
 $baseURL = $baseURL + "?startTimestamp=$start&endTimestamp=$now&expandDetails=$([string] $expandDetail)"
-
-## 
 
 # Add the System.Web type - the lack of this will be a headache otherwise.
 Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue | Out-Null
@@ -217,6 +225,8 @@ catch {
     Write-Error $_
     exit 1
 }
+
+$response.result.problems
 
 ## Create columnName variable to loop through
 $columnName = ($response.result.problems | Get-Member -MemberType "NoteProperty").name

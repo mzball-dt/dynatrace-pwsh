@@ -7,7 +7,7 @@ Powershell script for saving or viewing USQL queries as PS Tables or CSV files
 
 Use case: 
 - Extract USQL data from a tenant in a standard format
-    
+
 ### move-dashboard.ps1 (needs to be renamed copy-Dashboard)
 Powershell script for moving Dynatrace Managed Dashboards between Managed clusters or tenants
 
@@ -23,6 +23,9 @@ Use case:
 ### get-tenantTokens.ps1
 For auditing Tokens available in a given Dynatrace Tenant
 
+Use case: 
+- Reviewing users that have created tokens
+
 ### get-tenantTokenDetail.ps1
 For when you only want information about a specific tenant token
 
@@ -32,6 +35,11 @@ Use case:
 
 ### get-tenantDashboards.ps1
 For auditing or reporting of who has created/shared dashboards in a given Dynatrace Tenant
+
+Use case: 
+- Reviewing users that have created Dashboards
+- Reviewing the sharing of dashboards
+- Accessing user dashboards to support configuration
 
 ### get-tenantHostGroupDetail.ps1
 For reporting on all hosts in an environment, particularly for HU consumption by HostGroup
@@ -43,9 +51,10 @@ Use case:
 
 ### export-tenantConfig.ps1
 For exporting tenant configuration to disk for archiving or other purposes.
-    Use case: 
-        - Nightly tenant configuration dump to reduce risk of unwanted or mistaken changes
-        - Any reason you'd want to have a tenant-specific backup of configuration
+
+Use case: 
+- Nightly tenant configuration dump to reduce risk of unwanted or mistaken changes
+- Any reason you'd want to have a tenant-specific backup of configuration
 
 ### run-clusterWide.ps1
 Powershell script for running arbitary code against a collection of Dynatrace tenants.
