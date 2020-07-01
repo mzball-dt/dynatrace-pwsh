@@ -3,7 +3,8 @@
     For configuring tokens available in a given Dynatrace Tenant
 
 .Description
-    Script to configure tokens in a Dynatrace tenant. Attempts to work as well as possible with other mzball-dt scripts via piping
+    Script to configure tokens in a Dynatrace tenant. 
+    Attempts to work as well as possible with other mzball-dt scripts via PowerShell Pipes
 
     Possible Extensions: 
         - Extending Expiry
@@ -11,9 +12,11 @@
 
 .Notes
     Author: Michael Ball (extension) 
-    Version: 0.2 - 20200603
+    Version: 1.0.0 - 20200701
 
     ChangeLog
+        1.0.0
+        - Fixed some unnecessary outputs
         0.2
         - Create Tokens
             - Scope, Name, Expiry val/unit
@@ -23,7 +26,29 @@
         - Fairly sane error checking
 
 
-.Example ./set-tenantToken.ps1 -name 
+.Example /set-tenantToken.ps1 -id "c3275cc0-3334-48da-b4bc-c3275cc03755" -name "New name for old token"
+Cluster Version Check: GET https://abc12345.live.dynatrace.com/api/v1/config/clusterversion
+Token Permissions Check: POST https://abc12345.live.dynatrace.com/api/v1/tokens/lookup
+Retrieving Token JSON from ID: GET https://abc12345.live.dynatrace.com/api/v1/tokens/c3275cc0-3454-48da-b4bc-25cf84433755
+Update tenant token detail: PUT https://abc12345.live.dynatrace.com/api/v1/tokens/c3275cc0-3454-48da-b4bc-25cf84433755
+
+id                                   name                   revoked scopes
+--                                   ----                   ------- ------
+c3275cc0-3454-48da-b4bc-c3275cc03755 New name for old token    True {DataExport, ReadConfig, WriteConfig}
+
+.Example \get-tenantTokens.ps1 | ? { $_.name -match 'new token' } | .\set-tenantToken.ps1 -revoked | format-table
+Cluster Version Check: GET https://abc12345.live.dynatrace.com/api/v1/config/clusterversion
+Token Permissions Check: POST https://abc12345.live.dynatrace.com/api/v1/tokens/lookup
+Cluster Version Check: GET https://abc12345.live.dynatrace.com/api/v1/config/clusterversion
+Token Permissions Check: POST https://abc12345.live.dynatrace.com/api/v1/tokens/lookup
+Retrieving Token data: GET https://abc12345.live.dynatrace.com/api/v1/tokens
+id                                   name             revoked scopes
+--                                   ----             ------- ------
+c5c98bde-13bc-426b-4443-545484e397fc new token please    True {DataExport, ReadConfig, WriteConfig}
+5ad365ce-8a04-4d69-8bfc-ad40354355e4 new token please    True {DataExport, ReadConfig, WriteConfig}
+c3275cc0-3454-4124-b4bc-25cf84445355 new token please    True {DataExport, ReadConfig, WriteConfig}
+dfc22985-f514-40ed-6646-6b2718ec4837 new token please    True {DataExport, ReadConfig, WriteConfig}
+
 #>
 
 [CmdletBinding()]
@@ -189,15 +214,19 @@ public static class TrustEverything
     }
 
     $uri = "$baseURL/tokens"
+    Clear-Variable -Name 'res'
 }
 
 Process {    
     # Created for 1.192
     $validTokenPerms = @("AdvancedSyntheticIntegration", "AppMonIntegration", "CaptureRequestData", "DTAQLAccess", "DataExport", "DataImport", "DataPrivacy", "Davis", "DcrumIntegration", "DeploymentManagement", "DiagnosticExport", "DssFileManagement", "ExternalSyntheticIntegration", "InstallerDownload", "LogExport", "LogImport", "MemoryDump", "Mobile", "PluginUpload", "ReadAuditLogs", "ReadConfig", "ReadSyntheticData", "RestRequestForwarding", "RumBrowserExtension", "RumJavaScriptTagManagement", "SupportAlert", "TenantTokenManagement", "UserSessionAnonymization", "ViewDashboard", "WriteConfig", "WriteSyntheticData", "entities.read", "entities.write")
 
-    if (($script:scopes | Where-Object { $_ -notin $validTokenPerms }).count) {
-        $script:scopes | Where-Object { $_ -notin $validTokenPerms } | ForEach-Object {
+    if (($script:scopes | Where-Object { $_ -cnotin $validTokenPerms }).count) {
+        $script:scopes | Where-Object { $_ -cnotin $validTokenPerms } | ForEach-Object {
             Write-Error "Unknown/Invalid Token scope '$_'"
+            if ($script:scopes | Where-Object { $_ -in $validTokenPerms }) {
+                Write-Error "This was a capitalisation problem"
+            }
         }
         return
     }
@@ -263,15 +292,13 @@ Process {
         if ($script:revoked) { $tokenJson.revoked = $true }
         if ($script:active) { $tokenJson.revoked = $false }
 
-        $tokenJson
-
-        $tokenJson | convertTo-json
-
         # Send it back
         $uri = "$baseURL/tokens/$script:id"
         Write-Host -ForegroundColor cyan -Object "Update tenant token detail: PUT $uri"
-        $res = Invoke-RestMethod -Method PUT -Headers $headers -Uri $uri -Body ($tokenJson | ConvertTo-Json -Depth 5 -Compress)
-        return $res
+        $res = Invoke-WebRequest -Method PUT -Headers $headers -Uri $uri -Body ($tokenJson | ConvertTo-Json -Depth 5 -Compress)
+        if ($res.statusCode -eq 204) {
+            return $tokenJson
+        }
     }
 }
 
