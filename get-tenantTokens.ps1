@@ -11,9 +11,11 @@
 
 .Notes
     Author: Riley McClelland (original), Michael Ball (extension) 
-    Version: 1.1.0
+    Version: 1.1.1 20200701
 
     ChangeLog
+        1.1.1
+            Small output changes
         1.1.0
             Added -outfile
             Added export to stdout
@@ -147,7 +149,7 @@ if (!$noCheckCompatibility) {
     
     # Environment version check - cancel out if too old 
     $uri = "$baseURL/config/clusterversion"
-    Write-Host -ForegroundColor cyan -Object "Cluster Version Check: $uri"
+    Write-Host -ForegroundColor cyan -Object "Cluster Version Check: GET $uri"
     $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri 
     $envVersion = $res.version -split '\.'
     if ($envVersion -and ([int]$envVersion[0]) -ne 1 -and ([int]$envVersion[1]) -lt 176) {
@@ -157,7 +159,7 @@ if (!$noCheckCompatibility) {
 
     # Token has required Perms Check - cancel out if it doesn't have what's required
     $uri = "$baseURL/tokens/lookup"
-    Write-Host -ForegroundColor cyan -Object "Token Permissions Check: $uri"
+    Write-Host -ForegroundColor cyan -Object "Token Permissions Check: POST $uri"
     $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:token`"}"
     if (($script:tokenPermissionRequirements | Where-Object {$_ -notin $res.scopes}).count) {
         write-host "Failed Token Permission check. Token requires: $($script:tokenPermissionRequirements -join ',')"
@@ -172,7 +174,7 @@ function convertTo-jsDate($date) {
 
 $uri = "$baseURL/tokens"
 
-write-host -ForegroundColor cyan $uri
+write-host -ForegroundColor cyan "Retrieving Token data: GET $uri"
 if ($PSVersionTable.PSVersion.Major -lt 6) {
     $response = Invoke-RestMethod -Method GET -Uri $uri -Headers $headers
 }
