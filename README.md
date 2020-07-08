@@ -25,7 +25,7 @@ All scripts will:
 
 ## Other Scripts
 
-### move-dashboard.ps1 (needs to be renamed copy-Dashboard)
+### copy-dashboard.ps1
 
 Powershell script for moving Dynatrace Managed Dashboards between Managed clusters or tenants
 
