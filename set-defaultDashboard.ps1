@@ -7,16 +7,14 @@
     Uses an existing dashboard or dashboard json export (from file) as a template to create the new dashboards.
     To provide support for links specific to the environment, the string %%ENV%% is replaced with the environment URL.
 
-    Todo: 
-    - 
-    - 
-
 .NOTES
-    Version: alpha - 20200701
+    Version: alpha - 20200709
     Author: michael.ball8
     Requirements: Powershell 5+
     Changelog:        
-        alpha
+        v1.0.0
+        - MVP
+        - (haven't _really_ tested the from-file source but it should work just the same)
 #>
 
 <###########################
@@ -38,7 +36,7 @@ PARAM (
     # A default dashboard will by default not have a normal user attached
     [ValidateNotNullOrEmpty()][string]$destinationReportOwner = 'admin',
     # Secret String used to identify the target template report
-    [ValidateNotNullOrEmpty()][string]$destinationReportMarker = 'admin',
+    #[ValidateNotNullOrEmpty()][string]$destinationReportMarker = '', # todo
 
     # The json file that represents the source dashboard
     [ValidateScript( { if (Test-Path -Path $_ -PathType Leaf) { $true } else { throw "Unable to validate file '$_' exists" } })][String]$sourceFile,

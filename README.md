@@ -33,6 +33,16 @@ Use case:
 
 - After creating a standard report, copying it to another tenant to share value
 
+### set-defaultDashboard.ps1
+
+Script that creates or updates a Dynatrace Managed Dashboard based on a different/pre-existing. 
+Designed for nightly executions that update 'client-facing', published dashboards from a template.
+
+Use case: 
+- Keeping other dashboards in-sync with a specific 'special' dashboard
+- Maintaining a 'Default' dashboard provided to all Dynatrace Managed Tenants
+- Updating a 'Things you should know' or 'Public Announcement' dashboard in a scalable way 
+
 ### assign-syntheticClusterLocation.ps1
 
 Powershell script for assigning a Synthetic Location to a Dynatrace Managed Synthetic Cluster Node.
