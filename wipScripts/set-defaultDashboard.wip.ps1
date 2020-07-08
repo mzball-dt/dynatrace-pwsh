@@ -5,7 +5,11 @@
 .DESCRIPTION
     Intended to empower a 'default' dashboard shared between many Dynatrace Monitoring environments.
     Uses an existing dashboard or dashboard json export (from file) as a template to create the new dashboards.
-    To provide support for links specific to the 
+    To provide support for links specific to the environment, the string %%ENV%% is replaced with the environment URL.
+
+    Todo: 
+    - 
+    - 
 
 .NOTES
     Version: alpha - 20200701
@@ -22,7 +26,7 @@
 PARAM (
     # The cluster or tenant the Dasboard will be placed in
     [Parameter()][ValidateNotNullOrEmpty()] $dtenv = $env:dtenv,
-    # Token for the target tenant w/ DataExport and WriteConfig perms
+    # Token for the destination tenant w/ DataExport and WriteConfig perms
     [Alias('dttoken')][ValidateNotNullOrEmpty()][string] $token = $env:dttoken,
 
     <##################################
@@ -33,6 +37,8 @@ PARAM (
     [ValidateNotNullOrEmpty()][string]$destinationReportName,
     # A default dashboard will by default not have a normal user attached
     [ValidateNotNullOrEmpty()][string]$destinationReportOwner = 'admin',
+    # Secret String used to identify the target template report
+    [ValidateNotNullOrEmpty()][string]$destinationReportMarker = 'admin',
 
     # The json file that represents the source dashboard
     [ValidateScript( { if (Test-Path -Path $_ -PathType Leaf) { $true } else { throw "Unable to validate file '$_' exists" } })][String]$sourceFile,
@@ -42,6 +48,9 @@ PARAM (
     [ValidateNotNullOrEmpty()][String]$sourceDashboardID,
     # A Token with DataExport and ReadConfig access to the source Environment
     [ValidateNotNullOrEmpty()][String]$sourceToken,
+
+    # Force the creation of a new dashboard
+    [Switch]$force,
 
     <#################################
     # Stop of Script-specific params #
@@ -121,10 +130,10 @@ $headers = @{
     "Content-Type" = "application/json; charset=utf-8"
 }
 
-function confirm-supportedClusterVersion ($minimumVersion = 176) {
+function confirm-supportedClusterVersion ($minimumVersion = 176, $logmsg = '') {
     # Environment version check - cancel out if too old 
     $uri = "$baseURL/config/clusterversion"
-    Write-Host -ForegroundColor cyan -Object "Cluster Version Check: GET $uri"
+    Write-Host -ForegroundColor cyan -Object "Cluster Version Check$logmsg`: GET $uri"
     $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri 
     $envVersion = $res.version -split '\.'
     if ($envVersion -and ([int]$envVersion[0]) -ne 1 -and ([int]$envVersion[1]) -lt $minimumVersion) {
@@ -133,10 +142,10 @@ function confirm-supportedClusterVersion ($minimumVersion = 176) {
     }
 }
 
-function confirm-requireTokenPerms ($token, $requirePerms) {
+function confirm-requireTokenPerms ($token, $requirePerms, $logmsg = '') {
     # Token has required Perms Check - cancel out if it doesn't have what's required
     $uri = "$baseURL/tokens/lookup"
-    Write-Host -ForegroundColor cyan -Object "Token Permissions Check: POST $uri"
+    Write-Host -ForegroundColor cyan -Object "Token Permissions Check$logmsg`: POST $uri"
     $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:token`"}"
     if (($requirePerms | Where-Object { $_ -notin $res.scopes }).count) {
         write-host "Failed Token Permission check. Token requires: $($requirePerms -join ',')"
@@ -167,8 +176,8 @@ if (!$noCheckCompatibility) {
         return
     }
     
-    confirm-supportedClusterVersion 182
-    confirm-requireTokenPerms $script:token $script:tokenPermissionRequirements
+    confirm-supportedClusterVersion 182 -logmsg ' (Destination Cluster)'
+    confirm-requireTokenPerms $script:token $script:tokenPermissionRequirements -logmsg ' (Token for Destination Cluster)'
 }
 
 <#########################
@@ -204,8 +213,8 @@ if (!$script:sourceFile) {
         return
     }
     
-    confirm-supportedClusterVersion 182
-    confirm-requireTokenPerms $script:sourceToken "DataExport", "ReadConfig"
+    confirm-supportedClusterVersion 182 -logmsg ' (Source Cluster)'
+    confirm-requireTokenPerms $script:sourceToken "DataExport", "ReadConfig" -logmsg ' (Token for Source Cluster)'
 }
 
 function import-DashboardJSON ($environment, $token, [String]$dashboardJSON) {
@@ -254,36 +263,90 @@ function export-Dashboard ($environment, $token, $dashboardID) {
 }
 
 # collect the 'template' dashboard's structure
-$export = if ($script:sourceFile) {
+$import = if ($script:sourceFile) {
     Get-Content -Path $script:sourceFile -Raw | ConvertFrom-Json -Depth 20
-} else {
+}
+else {
     export-Dashboard $sourceEnvironment $sourceToken $sourceDashboardID
 }
 
-# update the output for importing
-$export.PSObject.properties.remove('id')
-$export.dashboardMetadata.owner = ''
-$export.dashboardMetadata.shared = $true
-$export.dashboardMetadata.sharingDetails.published = $true
-if ($script:destinationReportName) {
-    $export.dashboardMetadata.name = $script:destinationReportName
+# destinationReportName isn't required - populate it from the source dashboard if it's missing
+if (!$script:destinationReportName) {
+    $script:destinationReportName = $import.dashboardMetadata.name
 }
 
-# Convert the exported PSObject back to JSON
-$json = $export | ConvertTo-Json -Depth 20 -Compress
-write-host "Dashboard Export is $($json | Measure-Object -Character | Select-Object -ExpandProperty characters) bytes"
+# If we're not forced - check that a report doesn't already exist to overwrite
+if (!$script:force) {
+    # Attempt to find a dashboard that this should be overwriting
+    $headers = @{Authorization = "Api-Token $script:token"; "Content-Type" = "application/json" }
+    $url = "$script:dtenv/api/config/v1/dashboards"
+    write-host -ForegroundColor cyan "Fetch all dashboards in destination tenant: GET $url"
+    $dashboards = Invoke-RestMethod -Method GET -Headers $headers -Uri $url
+    
+    # filter based on the owner and name we're about to set
+    $filtered = $dashboards.dashboards | Where-Object -Property owner -eq -Value $script:destinationReportOwner
+    $filtered = $filtered | Where-Object -Property name -eq -Value $script:destinationReportName
+    
+    # If there's more than one left complain #todo check content for the $script:destinationReportMarker
+    if (($filtered).Length -gt 1) {
+        Write-Error "Unable to determine which dashboard is intended for replacement."
+        Write-Host "Please review the intended owner and name of the default dashboard and the dashboards that would conflict:"
+        Write-Host "Current values: `r`n`t-destinationReportOwner = $script:destinationReportOwner`r`n`t-destinationReportName = $script:destinationReportName"
+        Write-Host "Dashboards that match owner/name combo - preference is that there should only be one:"
+        $filtered | % { "'$($_.name)' by $($_.owner): $script:dtenv/#dashboard;id=$($_.id)" }
+        exit
+    }
+    elseif (($filtered).Length -lt 1 ) {
+        $noExistingDashboard = $true
+    }
+    else {
+        $existingDashboard = $filtered[0]
+    }
 
-# upload the new dashboard
-$newDashID = import-DashboardJSON $script:dtenv $script:token $json
-
-# fetch dashboard data (now that it's been made)
-$dashData = export-Dashboard $script:dtenv $script:token $newDashID
-$dashData.dashboardMetadata.owner = $script:destinationReportOwner
-
-$headers = @{
-    Authorization  = "Api-Token $script:token"
-    "Content-Type" = "application/json"
 }
-$url = "$script:dtenv/api/config/v1/dashboards/$newDashID"
-write-host -ForegroundColor cyan "Set owner of new dashboard: PUT $url"
-Invoke-RestMethod -Method PUT -Headers $headers -Uri $url -Body ($dashData | ConvertTo-Json -Depth 20 -Compress)
+
+# If we're forcing the new creation or couldn't find a recognisable pre-existing reports
+if ($script:force -or $noExistingDashboard) {
+    # update the output for importing
+    $import.PSObject.properties.remove('id')
+    $import.dashboardMetadata.owner = ''
+    $import.dashboardMetadata.shared = $true
+    $import.dashboardMetadata.sharingDetails.published = $true
+    $import.dashboardMetadata.name = $script:destinationReportName
+
+    # Convert the exported PSObject back to JSON
+    $json = $import | ConvertTo-Json -Depth 20 -Compress
+    $json = $json -replace "%%ENV%%","$script:dtenv"
+
+    write-host "Dashboard Import is $($json | Measure-Object -Character | Select-Object -ExpandProperty characters) bytes"
+
+    # upload the new dashboard
+    $newDashID = import-DashboardJSON $script:dtenv $script:token $json
+
+    # fetch dashboard data (now that it's been made)
+    $dashData = export-Dashboard $script:dtenv $script:token $newDashID
+    $dashData.dashboardMetadata.owner = $script:destinationReportOwner
+
+    # re-upload the re-authored dashboard
+    $headers = @{Authorization = "Api-Token $script:token"; "Content-Type" = "application/json" }
+    $url = "$script:dtenv/api/config/v1/dashboards/$newDashID"
+    write-host -ForegroundColor cyan "Setting owner of new dashboard: PUT $url"
+    Invoke-RestMethod -Method PUT -Headers $headers -Uri $url -Body ($dashData | ConvertTo-Json -Depth 20 -Compress)
+
+}
+# If we found a pre-existing report then just update the tiles and send the update
+else {
+    # Pull the structure of the current dashboard
+    $existingDashboardData = export-Dashboard $script:dtenv $script:token $existingDashboard.id
+    $existingDashboardData.tiles = $import.tiles
+
+    $headers = @{Authorization = "Api-Token $script:token"; "Content-Type" = "application/json" }
+    $url = "$script:dtenv/api/config/v1/dashboards/$($existingDashboard.id)"
+    $json = $existingDashboardData | ConvertTo-Json -Depth 20 -Compress
+    $json = $json -replace "%%ENV%%","$script:dtenv"
+
+    write-host -ForegroundColor cyan "Update the existing default dashboard: PUT $url"
+    Invoke-RestMethod -Method PUT -Headers $headers -Uri $url -Body $json
+}
+
+Write-Host -ForegroundColor Green "Complete"
