@@ -8,20 +8,46 @@
     Possible Extensions: 
         - Additional processing of the dashboard contents
         - Exporting all or specific dashboards to disk
+        - Support being piped into
         - reducing the number of api requests this script performs (not currently possible)
 
 .Notes
     Author: Michael Ball
-    Version: 1.1.0 - 20200513
+    Version: 1.1.1 - 20200729
 
     ChangeLog
+        1.1.1
+            Updated script with examples
         1.1.0
             Updated script to work with the new scaffolding
         1.0.0
             MVP - Things work - basic script
         
 .Example  
-    ./get-tenantDashboards.ps1 -dtenv "https://lasjdh3.live.dynatrace.com/" -token 'asdfu12312938' | format-table
+    pwsh>./get-tenantDashboard.ps1 |format-table
+    Cluster Version Check: https://abc12345.live.dynatrace.com/api/v1/config/clusterversion
+    Token Permissions Check: https://abc12345.live.dynatrace.com/api/v1/tokens/lookup
+    Get list of Dashboards: https://abc12345.live.dynatrace.com/api/config/v1/dashboards
+
+    Owner                          Name                       Shared SharedViaLink Published ManagementZone NumberOfTiles DefaultTimeFrame ManagementZoneID
+    -----                          ----                       ------ ------------- --------- -------------- ------------- ---------------- -------------
+    admin                          SableDefault                 True         False      True                           13
+    User1@dynatrace.com            Home                        False          True     False                           14
+    User2@dynatrace.com            Home                        False          True     False                           14
+    User3@dynatrace.com            Home                        False          True     False                           14
+    User4@dynatrace.com            Home                        False          True     False                           14
+    User5@dynatrace.com            Home                        False         False     False                           14
+    User6@dynatrace.com            Home                        False         False     False                           14
+    michael.ball@dynatrace.com     Default Dashboard Template  False         False      True                           13
+    michael.ball@dynatrace.com     Home                         True          True     False                           10 l_2_HOURS
+    michael.ball@dynatrace.com     NAM                         False          True     False                            7 l_2_HOURS
+    michael.ball@dynatrace.com     Prestashop                   True         False     False Prestashop                18 l_2_HOURS        -640416780...
+    User7@dynatrace.com            Home                        False         False     False                           14
+    User8@dynatrace.com            Home                        False         False     False                           14
+    User9@dynatrace.com            Home                        False          True     False                           14
+    User0@dynatrace.com            Fred's Dashboard            False         False     False                            3 l_72_HOURS
+    
+
 #>
 
 [CmdletBinding(DefaultParametersetName="default")]
