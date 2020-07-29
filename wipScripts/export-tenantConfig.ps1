@@ -5,7 +5,7 @@
 .DESCRIPTION
     Exports all the configurations available to a folder.
 
-    Currently very barebones
+    Currently very barebones - doesn't do the whole environment.
 
 .NOTES
     Author: michael.ball
@@ -41,6 +41,8 @@ PARAM (
     # DO NOT USE - This is set by Script Author
     [String[]]$script:tokenPermissionRequirements = @('DataExport', 'ReadConfig')
 )
+
+write-warning "I don't consider this script complete - it's unlikely to completely export the config of your environment at the moment"
 
 # Help flag checks
 if ($h -or $help) {
