@@ -11,9 +11,11 @@
 
 .Notes
     Author: Riley McClelland (original), Michael Ball (extension) 
-    Version: 1.1.1 20200701
+    Version: 1.1.2 - 20200729
 
     ChangeLog
+        1.1.2
+            Renamed to get-tenantToken.ps1
         1.1.1
             Small output changes
         1.1.0

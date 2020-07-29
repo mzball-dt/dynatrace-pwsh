@@ -3,7 +3,8 @@
     Get information about your token
 
 .Description
-    #todo
+    Todo: 
+        - Merge this into get-tenantToken.ps1
 
 .Notes
     Author: Michael Ball

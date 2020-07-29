@@ -15,7 +15,7 @@ All scripts will:
 | Script | Details |
 | --- | --- |
 | get-tenantMonitoredEntity.ps1 | For retrieving entities currently monitored in a Dynatrace Environment<p>Usecases:</p><ul><li>Exploration of a monitoring environment via the API</li><li>Reporting on how many X in an environment</li><li>To collect information required for further scripts (piping further into a chain)</li></ul>|
-| get-tenantTokens.ps1 | For auditing Tokens available in a given Dynatrace<p>Usecases:</p><ul><li>Reviewing users that have created tokens</li></ul> |
+| get-tenantToken.ps1 | For auditing Tokens available in a given Dynatrace<p>Usecases:</p><ul><li>Reviewing users that have created tokens</li></ul> |
 | set-tenantToken.ps1 | For configuring tokens in a given Dynatrace Tenant. Created to function with the output directly from get-tenantTokens or via a filtering step<p>Usecases:</p><ul><li>Programmatically create new tokens</li><li>Revoke tokens belonging to a certain user</li><li>Update names for tokens</li><li>Remove problematic scopes from tokens found in Dynatrace tenants</li></ul> |
 | get-tenantTokenDetail.ps1 | For when you only want information about a specific tenant token<p>Usecases:</p><ul><li>Checking scopes assigned to a token</li><li>Checking scopes of tokens listed for use by run-clusterwide.ps1.</li></ul> |
 | get-tenantDashboard.ps1 | For auditing or reporting of who has created/shared dashboards in a given Dynatrace Tenant<p>Usecases:</p><ul><li>Reviewing users that have created Dashboards</li><li>Reviewing the sharing of dashboards</li><li>Accessing user dashboards to support configuration</li></ul> |
