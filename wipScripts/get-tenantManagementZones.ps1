@@ -7,7 +7,7 @@
 
 .Notes
     Author: Michael Ball
-    Version: 1.1.1 - 20200729
+    Version: 0.1.0 - 20200729
 
     ChangeLog
         0.1.0
@@ -16,7 +16,6 @@
 .Example      
 
 #>
-
 [CmdletBinding(DefaultParametersetName="default")]
 PARAM (
     # The cluster or tenant the HU report should be fetched from
@@ -24,6 +23,11 @@ PARAM (
     # Token must have Smartscape Read access for a tenant
     [Alias('dttoken')][ValidateNotNullOrEmpty()][string] $token = $env:dttoken,
 
+    # The ID for the Management Zone that should be fetched
+    [Parameter(ValueFromPipelineByPropertyName)][ValidateNotNullOrEmpty()][string] $id,
+
+    # Show a subset of information collected
+    [Alias('summary')][switch]$short,
     
     # Prints Help output
     [Alias('h')][switch] $help,
@@ -145,6 +149,10 @@ function convertTo-jsDate($date) {
     return [Math]::Floor(1000 * (Get-Date ($date) -UFormat %s))
 }
 
+if ($script:id) {
+    
+}
+
 $uri = "$script:dtenv/api/config/v1/managementZones"
 Write-host -ForegroundColor cyan "Get list of Management Zones: $uri"
 if ($PSVersionTable.PSVersion.Major -lt 6) {
@@ -156,28 +164,21 @@ else {
 
 # iterate through the returned data to construct a PWSH Object, output and possibly save it
 $data = @()
-Foreach ($row in $response.dashboards) {
+Foreach ($row in $response.values) {
     if ($PSVersionTable.PSVersion.Major -lt 6) {
-        $completeDashboard = Invoke-RestMethod -Method GET -Uri "$uri/$($row.id)" -Headers $headers
+        $mz = Invoke-RestMethod -Method GET -Uri "$uri/$($row.id)" -Headers $headers
     }
     else {
-        $completeDashboard = Invoke-RestMethod -Method GET -Uri "$uri/$($row.id)" -Headers $headers -skipcertificatecheck
+        $mz = Invoke-RestMethod -Method GET -Uri "$uri/$($row.id)" -Headers $headers -skipcertificatecheck
     }
 
-    # $dashboardSummary = New-Object psobject
-    # $dashboardSummary | Add-Member -MemberType NoteProperty -Name "Owner" -Value $completeDashboard.dashboardMetadata.owner
-    # $dashboardSummary | Add-Member -MemberType NoteProperty -Name "Name" -Value $completeDashboard.dashboardMetadata.name
-    # $dashboardSummary | Add-Member -MemberType NoteProperty -Name "Shared" -Value $completeDashboard.dashboardMetadata.shared
-    # $dashboardSummary | Add-Member -MemberType NoteProperty -Name "SharedViaLink" -Value $completeDashboard.dashboardMetadata.sharingDetails.linkShared
-    # $dashboardSummary | Add-Member -MemberType NoteProperty -Name "Published" -Value $completeDashboard.dashboardMetadata.sharingDetails.published
-    # $dashboardSummary | Add-Member -MemberType NoteProperty -Name "ManagementZone" -Value ($completeDashboard.dashboardMetadata.dashboardFilter.managementZone.name, "" -ne $null)[0]
-    # $dashboardSummary | Add-Member -MemberType NoteProperty -Name "NumberOfTiles" -Value $completeDashboard.tiles.count
-    # $dashboardSummary | Add-Member -MemberType NoteProperty -Name "DefaultTimeFrame" -Value $completeDashboard.dashboardMetadata.dashboardFilter.timeframe
-    # $dashboardSummary | Add-Member -MemberType NoteProperty -Name "ManagementZoneID" -Value ($completeDashboard.dashboardMetadata.dashboardFilter.managementZone.id, "" -ne $null)[0]
-    # $dashboardSummary | Add-Member -MemberType NoteProperty -Name "id" -Value $completeDashboard.id
+    $mzSummary = New-Object psobject
+    $mzSummary | Add-Member -MemberType NoteProperty -Name "id" -Value $mz.id
+    $mzSummary | Add-Member -MemberType NoteProperty -Name "name" -Value $mz.name
+    $mzSummary | Add-Member -MemberType NoteProperty -Name "numberOfRules" -Value $mz.rules.count
+    $mzSummary | Add-Member -MemberType NoteProperty -Name "rules" -Value $mz.rules
 
-    $data += $dashboardSummary
-    # $rawdata += $completeDashboard
+    $data += $mzSummary
 }
 
 # If we need to output to file
@@ -192,7 +193,7 @@ if ($script:outfile) {
 
 # Output
 if ($short) {
-    $data | Select-Object -Property Owner,Name,Shared,Published,ManagementZone | Sort-Object -Property owner,name
+    $data | Select-Object -Property Name,id,numberOfRules | Sort-Object -Property name
 } else {
-    $data | Sort-Object -Property owner,name
+    $data | Sort-Object -Property name
 }
