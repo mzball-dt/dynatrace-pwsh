@@ -224,7 +224,7 @@ if ($summary) {
             $mr['noHostGroup'] = ($_.Group.consumedHostUnits | Measure-Object -Sum).sum
         }
     } {$mr}
-    return $summaryout
+    return $summaryout | Format-Table Name, Value -AutoSize
 } else {
     return $hostInfo
 }
