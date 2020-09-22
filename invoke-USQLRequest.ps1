@@ -7,9 +7,14 @@
 
     .Notes
         Author: Michael Ball
-        Version: 1.2.0 - 20200506
+        Version: 1.3 - 20200922
 
         ChangeLog
+            1.3.0
+                - Added a new param for a backdated end date 'periodOffset'
+                - Added a new param set for startDate and endDate
+                - fixed error that occurs when using the -outfile param
+                - deprecated param -timePeriod. Users should now use numberOfPeriods
             1.2.0
                 Updated with new standard scaffolding
                 Implicitly loaded System.web prior to urlencode to hopefully prevent any issues with that being missing
@@ -23,7 +28,7 @@
             
 
     .Example
-        ./invoke-usqlRequest.ps1 -dtenv id.live.dynatrace.com -token $(get-content token.file) -USQL 'select city from usersession'
+        ./invoke-usqlRequest.ps1 -dtenv abc12345.live.dynatrace.com -token $(get-content token.file) -USQL 'select city from usersession'
 
         city
         ----
@@ -34,6 +39,19 @@
         São Paulo (Amazon)
         Jakarta (Alibaba)
         ...
+
+    .Example
+        ./invoke-USQLRequest.ps1 -USQL 'select count(*) from usersession' -startDate '02/02/2020' -endDate '25/02/2020'
+
+        In this case the dtenv and token params are filled from the environment variables dtenv & dttoken
+
+    .Example 
+        ./invoke-USQLRequest.ps1 -USQL 'select count(*) from usersession' -periodType day -numberOfPeriods 5 -periodOffset 2
+
+        This will provide data for the USQL query over a 5 day reporting period that ends 2 days before today
+
+        | 21/07 | 22/07 | 23/07 | 24/07 | 25/07 | 26/07 | 27/07 | 28/08 | 
+            | <---------- Reporting Period -------> | <--Offset--> Now
 #>
 
 PARAM (
@@ -44,14 +62,23 @@ PARAM (
 
     # The USQL Query to run against the cluster
     [ValidateNotNullOrEmpty()][String]$USQL,
+
+    # The exact time that the USQL reporting period should start
+    [Parameter(ParameterSetName = "absolute")][ValidateNotNullOrEmpty()][string]$startDate,
+    # The exact time that the USQL reporting period should end. Defaults to now
+    [Parameter(ParameterSetName = "absolute")][ValidateNotNullOrEmpty()][string]$endDate = (get-date),
+
     # What period length should be reported
-    [ValidateSet('minute', 'hour', 'day', 'week')][string]$periodType = 'hour',
+    [Parameter(ParameterSetName = "relative")][ValidateSet('minute', 'hour', 'day', 'week')][string]$periodType = 'hour',
     # How many of these time periods back should be requested
-    [String]$timePeriod = 2,
-    # Number of results to pull back
-    [int]$pageSize = 500,
+    [Alias('timePeriod', 'periods')][Parameter(ParameterSetName = "relative")][ValidateNotNullOrEmpty()][Int]$numberOfPeriods = 2,
+    # The number of periods that the USQL time frame should be slid backwards (offset)
+    [Parameter(ParameterSetName = "relative")][ValidateNotNullOrEmpty()][Int]$periodOffset = 0,
+
+    # Number of results to pull back (default 500)
+    [ValidateNotNullOrEmpty()][int]$pageSize = 500,
     # Path to output a csv representation of the fetched data.
-    [string] $outfile,
+    [ValidateNotNullOrEmpty()][string] $outfile,
 
     # Prints Help output
     [Alias('h')][switch] $help,
@@ -173,7 +200,7 @@ if (!$noCheckCompatibility) {
     }
 }
 
-function convertTo-jsDate($date) {
+function convertTo-jsDate([Parameter(ValueFromPipeline = $true)][datetime]$date) {
     return [Math]::Floor(1000 * (Get-Date ($date) -UFormat %s))
 }
 
@@ -186,11 +213,20 @@ $timePeriodHash = @{
 
 $baseURL = "$baseURL/userSessionQueryLanguage/table"
 
-# Add the time and other params
-$now = convertTo-jsDate ([datetime]::UtcNow)
-$start = $now - $timePeriodHash[$script:periodType] * $script:timePeriod
+if ($script:startDate -ne "") {
+    # We were given the stuff so put it together
+    $start =  get-date $script:startDate | convertTo-jsDate
+    $end = get-date $script:endDate | convertTo-jsDate
 
-$baseURL = $baseURL + "?startTimestamp=$start&endTimestamp=$now&pageSize=$script:pageSize"
+    $script:baseURL = $baseURL + "?startTimestamp=$start&endTimestamp=$end&pageSize=$script:pageSize"
+} else {
+    # Add the time and other params
+    $now = convertTo-jsDate ([datetime]::UtcNow)
+    $start = $now - $timePeriodHash[$script:periodType] * ($script:numberOfPeriods + $script:periodOffset)
+    $end = $now - $timePeriodHash[$script:periodType] * $script:periodOffset
+    
+    $script:baseURL = $baseURL + "?startTimestamp=$start&endTimestamp=$end&pageSize=$script:pageSize"
+}
 
 # Add the System.Web type - the lack of this will be a headache otherwise.
 Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue | Out-Null
@@ -219,7 +255,7 @@ Foreach ($row in $response.values) {
 
 # If we need to output to file
 if ($script:outfile) {
-    if (!(Split-Path $script:outfile | Test-Path -PathType Container)) {
+    if (!(Test-Path -PathType Container -Path (Split-Path $script:outfile))) {
         New-Item -Path (Split-Path $script:outfile) -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
     }
     $outputFile = New-Item -Path $script:outfile -Force
