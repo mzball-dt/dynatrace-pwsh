@@ -12,8 +12,10 @@
             - implement -id to only return information about the id that's requested
     .Notes
         Author: Michael Ball
-        Version: 0.1.0-beta - 20201001
-        ChangeLog
+        Version: 0.1.0-beta1 - 20201001
+        ChangeLog:
+            0.1.0-beta2 - 20201001
+                Implemented id and filter params for limiting what is retrieved
             0.1.0-beta - 20201001
                 Everything works but for requesting specific IDs or filtering on Name/description keywords
             
@@ -36,8 +38,13 @@ PARAM (
     # Start of Script-specific params #
     ##################################>
 
-    [Parameter(ValueFromPipeline = $true)] $inputObject,
-    [Parameter(ValueFromPipelineByPropertyName = $true)] $id,
+    # The id of the maintenance window to retrieve
+    [ValidateNotNullOrEmpty()][string] $id,
+
+    # Filter maintenanceWindows based on this string (accepts regex)
+    [ValidateNotNullOrEmpty()][string] $filter,
+
+    # return only limited information
     [switch] $short,
 
     <#################################
@@ -186,13 +193,26 @@ function convertTo-jsDate($date) {
 ###########################
 #>
 
-## Add API CALL
-
 $uri = "$script:dtenv/api/config/v1/maintenanceWindows"
-Write-host -ForegroundColor cyan "Get list of Maintenance Windows: GET $uri"
-$response = Invoke-RestMethod -Method GET -Uri $uri -Headers $headers
 
-if ($short) {
+# if we're looking for a specific id, fudge the API response shape for 1 id
+$response = $null
+if ($script:id) {
+    $response = @{values = , @{id = $script:id } }
+}
+# Retrieve the complete list - with any possible filter applied
+else {
+    Write-host -ForegroundColor cyan "Get list of Maintenance Windows: GET $uri"
+    $response = Invoke-RestMethod -Method GET -Uri $uri -Headers $headers
+    if ($script:filter) {
+        $response.values = $response.values | Where-Object -Property name -Match -Value $script:filter
+    }
+}
+
+if ($script:short -and $script:id) {
+    return Invoke-RestMethod -Method GET -Uri "$uri/$($script:id)" -Headers $headers | Select-Object -Property id, name, description
+}
+elseif ($script:short) {
     return $response.values
 }
 
