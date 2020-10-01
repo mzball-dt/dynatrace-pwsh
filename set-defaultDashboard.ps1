@@ -8,13 +8,14 @@
     To provide support for links specific to the environment, the string %%ENV%% is replaced with the environment URL.
 
 .NOTES
-    Version: alpha - 20200709
-    Author: michael.ball8
+    Version: alpha - 20201001
+    Author: Michael Ball
     Requirements: Powershell 5+
-    Changelog:        
-        v1.0.0
-        - MVP
-        - (haven't _really_ tested the from-file source but it should work just the same)
+    Changelog:
+        1.0.1
+            Fixed a bug that caused a pre-existing dashboard to not be updated
+        1.0.0
+            MVP
 #>
 
 <###########################
@@ -48,7 +49,7 @@ PARAM (
     [ValidateNotNullOrEmpty()][String]$sourceToken,
 
     # Force the creation of a new dashboard
-    [Switch]$force,
+    [Switch]$force = $false,
 
     <#################################
     # Stop of Script-specific params #
@@ -284,9 +285,9 @@ if (!$script:force) {
     # filter based on the owner and name we're about to set
     $filtered = $dashboards.dashboards | Where-Object -Property owner -eq -Value $script:destinationReportOwner
     $filtered = $filtered | Where-Object -Property name -eq -Value $script:destinationReportName
-    
+
     # If there's more than one left complain #todo check content for the $script:destinationReportMarker
-    if (($filtered).Length -gt 1) {
+    if (@($filtered).Length -gt 1) {
         Write-Error "Unable to determine which dashboard is intended for replacement."
         Write-Host "Please review the intended owner and name of the default dashboard and the dashboards that would conflict:"
         Write-Host "Current values: `r`n`t-destinationReportOwner = $script:destinationReportOwner`r`n`t-destinationReportName = $script:destinationReportName"
@@ -294,10 +295,12 @@ if (!$script:force) {
         $filtered | % { "'$($_.name)' by $($_.owner): $script:dtenv/#dashboard;id=$($_.id)" }
         exit
     }
-    elseif (($filtered).Length -lt 1 ) {
+    elseif (@($filtered).Length -lt 1 ) {
+        Write-host "We couldn't find a dashboard"
         $noExistingDashboard = $true
     }
     else {
+        Write-host "We found exactly one dashboard"
         $existingDashboard = $filtered[0]
     }
 
@@ -305,6 +308,8 @@ if (!$script:force) {
 
 # If we're forcing the new creation or couldn't find a recognisable pre-existing reports
 if ($script:force -or $noExistingDashboard) {
+    write-host "f:$force and nED: $noExistingDashboard"
+
     # update the output for importing
     $import.PSObject.properties.remove('id')
     $import.dashboardMetadata.owner = ''
@@ -314,7 +319,7 @@ if ($script:force -or $noExistingDashboard) {
 
     # Convert the exported PSObject back to JSON
     $json = $import | ConvertTo-Json -Depth 20 -Compress
-    $json = $json -replace "%%ENV%%","$script:dtenv"
+    $json = $json -replace "%%ENV%%", "$script:dtenv"
 
     write-host "Dashboard Import is $($json | Measure-Object -Character | Select-Object -ExpandProperty characters) bytes"
 
@@ -341,7 +346,7 @@ else {
     $headers = @{Authorization = "Api-Token $script:token"; "Content-Type" = "application/json" }
     $url = "$script:dtenv/api/config/v1/dashboards/$($existingDashboard.id)"
     $json = $existingDashboardData | ConvertTo-Json -Depth 20 -Compress
-    $json = $json -replace "%%ENV%%","$script:dtenv"
+    $json = $json -replace "%%ENV%%", "$script:dtenv"
 
     write-host -ForegroundColor cyan "Update the existing default dashboard: PUT $url"
     Invoke-RestMethod -Method PUT -Headers $headers -Uri $url -Body $json
