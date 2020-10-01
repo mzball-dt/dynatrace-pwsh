@@ -30,21 +30,21 @@ PARAM (
     # Start of Script-specific params #
     ##################################>
     
-    # The ID of the maintenance window
+    # The ID of a maintenance window to update
     [Parameter(ValueFromPipelineByPropertyName = $true)] $id,
+
+    # The catch all object for piping things through
+    [Parameter(ValueFromPipeline = $true)] $inputObject,
 
     # Create a new Maintenance Window
     [Alias('newMW', 'new')][switch] $newMaintenanceWindow,
     # Delete this Maintenance Window
     [switch] $delete,
 
-    # The catch all object for piping things through
-    [Parameter(ValueFromPipeline = $true)] $inputObject,
-
     # The name of the maintenance window, displayed in the UI
-    [string] $name,
+    [ValidateNotNullOrEmpty()][string] $name,
     # A short description of the maintenance purpose
-    [string] $description,
+    [ValidateNotNullOrEmpty()][string] $description,
     # If the Maintenance Window is considered planned - the window will be unplanned if not present
     [switch] $planned,
     # The type of suppression of alerting and problem detection during the maintenance
@@ -56,18 +56,18 @@ PARAM (
     [string[]] $tagScope,
     
     # Recurrence of the schedule
-    [ValidateSet('DAILY', 'MONTHLY', 'ONCE', 'WEEKLY')][string] $ScheduleType,
+    [ValidateSet('DAILY', 'MONTHLY', 'ONCE', 'WEEKLY')][string] $recurrenceType,
     # The start date and time of the maintenance window
-    [datetime] $startDate,
+    [ValidateNotNullOrEmpty()][datetime] $startDate,
     # The end date and time of the maintenance window
-    [datetime] $endDate, 
+    [ValidateNotNullOrEmpty()][datetime] $endDate, 
     # The time zone of the start and end time - will default to the local timezone
-    [System.TimeZone] $timeZone = (Get-TimeZone),
+    [ValidateNotNullOrEmpty()][System.TimeZoneInfo] $timeZone = (Get-TimeZone),
 
     # The start time of the maintenance window. The format is HH:mm
-    [string] $windowStart,
+    [ValidateNotNullOrEmpty()][string] $windowStart,
     # The duration of the maintenance window in minutes
-    [string] $durationMinutes,
+    [ValidateNotNullOrEmpty()][string] $durationMinutes,
     # The day of the month for monthly maintenance
     [ValidateRange(0, 31)][int] $dayOfMonth,
     # The day of the week for weekly maintenance
@@ -219,7 +219,6 @@ public static class TrustEverything
     }
 
     $baseURL = "$script:dtenv/api/config/v1"
-    Clear-Variable -Name 'res'
 }
 <#
 ###########################
@@ -228,26 +227,52 @@ public static class TrustEverything
 #>
 
 PROCESS {
-
     # Check that we have all the params that we require to function
-
+    $requiredParams = 'name', 'description', 'suppression', 'recurrenceType', 'startDate', 'endDate'
+    $badRequiredParams = @()
+    foreach ($paramName in $requiredParams) {
+        $paramVal = Get-Variable -Scope 'script' -Name $paramName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty value
+        if ( $null -eq $paramVal -or $paramVal.ToString() -eq '') { $badRequiredParams += $paramName }
+    }
+    if ($badRequiredParams) {
+        Write-Error "Required Parameters are missing/invalid: $($badRequiredParams -join ', ')"
+        exit
+    }
 
     # Create a new Token JSON from params
     if ($script:newMaintenanceWindow) {
-        $uri = "$baseURL/tokens"
-        Write-host -ForegroundColor cyan -Object "Requesting creation of new token: POST $uri"
+        $uri = "$baseURL/maintenanceWindows"
+
+        $reqBody = @"
+        {
+            "name": "$script:name",
+            "description": "$script:description",
+            "type": "$(if($script:planned){'PLANNED'}else{'UNPLANNED'})",
+            "suppression": "$script:suppression",
+            "schedule": {
+              "recurrenceType": "$script:recurrenceType",
+              "start": "$($script:startDate)",
+              "end": "$($script:endDate)",
+              "zoneId": "$($script:timeZone)"
+            }
+        }
+"@
+
+        write-host $reqBody
+        exit
+        
+        Write-host -ForegroundColor cyan -Object "Requesting creation of new maintenance Window: POST $uri"
         $res = Invoke-RestMethod -Method POST -Headers $headers -uri $uri -Body $reqBody -ErrorAction Stop
         return $res
     
-        # Delete the Token
     }
+    # Delete the Token
     elseif ($script:delete) {
         $uri = "$baseURL/maintenanceWindows/$script:id"
         Write-host -ForegroundColor cyan -Object "Permanently deleting Maintenance Window: DELETE $uri"
         $res = Invoke-RestMethod -Method Delete -Headers $headers -uri $uri -Body $reqBody -ErrorAction Stop
         return $res
     }
-
     # Edit what was provided and send it back
     else {
         if (!$script:id) { return Write-Error "No Maintenance Window Id was provided to set/update" }
@@ -257,7 +282,7 @@ PROCESS {
             # IF we don't have the id - get it now - this will also give us the JSON
             $uri = "$baseURL/tokens/lookup"
             Write-Host -ForegroundColor cyan -Object "Retrieving Token JSON from value: POST $uri"
-            $tokenJson = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:tokenValue`"}"
+            $tokenJson = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body " { `"token`": `"$script:tokenValue`" }"
         }
         elseif ($script:id) {
             $uri = "$baseURL/tokens/$script:id"
