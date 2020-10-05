@@ -1,13 +1,25 @@
 <#
     .Synopsis
         Configure Maintenance Windows for a Dynatrace Tenant
-    .Description
 
+    .Description
+        This script provides a CLI to modify the Maintenance windows in any given Dynatrace Tenant.
+        Specifically, this CLI allows the creation, modification and removal of Maintenance Windows
+        via the Dynatrace Tenant Configuration API.
+
+        * Use the -newMaintenanceWindow or -new parameter to create a new Maintenance Window based on the
+        other parameters provided to the script.
+        * Use -delete parameter to permanently remove a Maintenance window based on id. This usage will also
+        collect data from the pipeline, allowing for bulk deletion.
+        * Where neither -delete or -new are provided the set-tenantMaintenanceWindow.ps1 will attempt to update
+        the maintenanceWindow provided via either the -id param or pipeline.
 
     .Notes
         Author: Michael Ball
-        Version: 0.1.0-alpha - 20201001
-        ChangeLog
+        Version: 0.1.0 - 20201005
+        ChangeLog:
+            0.1.0 - 20201005
+                Basic Write/Delete/Read functionality is now working
             0.1.0-alpha - 20201001
                 Still Working on Param input
             
@@ -37,7 +49,7 @@ PARAM (
     [Parameter(ValueFromPipeline = $true)] $inputObject,
 
     # Create a new Maintenance Window
-    [Alias('newMW', 'new')][switch] $newMaintenanceWindow,
+    [Alias('new')][switch] $newMaintenanceWindow,
     # Delete this Maintenance Window
     [switch] $delete,
 
@@ -160,7 +172,7 @@ public static class TrustEverything
         Write-Host -ForegroundColor cyan -Object "Cluster Version Check$logmsg`: GET $uri"
         $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri 
         $envVersion = $res.version -split '\.'
-        if ($envVersion -and ([int]$envVersion[0]) -ne 1 -and ([int]$envVersion[1]) -lt $minimumVersion) {
+        if ($envVersion -and (([int]$envVersion[0]) -ne 1 -or ([int]$envVersion[1]) -lt $minimumVersion)) {
             Write-Error "Failed Environment version check - Expected: > 1.$minimumVersion - Got: $($res.version)"
             exit
         }
@@ -227,22 +239,23 @@ public static class TrustEverything
 #>
 
 PROCESS {
-    # Check that we have all the params that we require to function
-    $requiredParams = 'name', 'description', 'suppression', 'recurrenceType', 'startDate', 'endDate'
-    $badRequiredParams = @()
-    foreach ($paramName in $requiredParams) {
-        $paramVal = Get-Variable -Scope 'script' -Name $paramName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty value
-        if ( $null -eq $paramVal -or $paramVal.ToString() -eq '') { $badRequiredParams += $paramName }
-    }
-    if ($badRequiredParams) {
-        Write-Error "Required Parameters are missing/invalid: $($badRequiredParams -join ', ')"
-        exit
-    }
-
     # Create a new Token JSON from params
     if ($script:newMaintenanceWindow) {
-        $uri = "$baseURL/maintenanceWindows"
 
+        # Check that we have all the params that we require to create a new MaintenanceWindow
+        $requiredParams = 'name', 'description', 'suppression', 'recurrenceType', 'startDate', 'endDate'
+        $badRequiredParams = @()
+        foreach ($paramName in $requiredParams) {
+            $paramVal = Get-Variable -Scope 'script' -Name $paramName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty value
+            if ( $null -eq $paramVal -or $paramVal.ToString() -eq '') { $badRequiredParams += $paramName }
+        }
+        if ($badRequiredParams) {
+            return Write-Error "Required Parameters are missing/invalid: $($badRequiredParams -join ', ')"
+        }
+
+        # Check the recurrance type required perms as well
+
+        $uri = "$baseURL/maintenanceWindows"
         $reqBody = @"
         {
             "name": "$script:name",
@@ -251,20 +264,20 @@ PROCESS {
             "suppression": "$script:suppression",
             "schedule": {
               "recurrenceType": "$script:recurrenceType",
-              "start": "$($script:startDate)",
-              "end": "$($script:endDate)",
-              "zoneId": "$($script:timeZone)"
+              "start": "$(get-date $script:startDate -Format 'yyyy-MM-dd HH:mm')",
+              "end": "$(get-date $script:endDate -Format 'yyyy-MM-dd HH:mm')",
+              "zoneId": "$("UTC+{0}:00" -f $script:timeZone.BaseUtcOffset.Hours)"
             }
         }
 "@
-
-        write-host $reqBody
-        exit
-        
         Write-host -ForegroundColor cyan -Object "Requesting creation of new maintenance Window: POST $uri"
-        $res = Invoke-RestMethod -Method POST -Headers $headers -uri $uri -Body $reqBody -ErrorAction Stop
-        return $res
-    
+        try {
+            return Invoke-RestMethod -Method POST -Headers $headers -uri $uri -Body $reqBody -ErrorAction stop
+        }
+        catch {
+            Write-Error $_
+        }
+        
     }
     # Delete the Token
     elseif ($script:delete) {
@@ -276,31 +289,29 @@ PROCESS {
     # Edit what was provided and send it back
     else {
         if (!$script:id) { return Write-Error "No Maintenance Window Id was provided to set/update" }
-        if ($script:expiryTimeValue) { Write-Warning "Expiry parameters are not supported for updates" }
 
-        if (!$script:id -and $script:tokenValue) {
-            # IF we don't have the id - get it now - this will also give us the JSON
-            $uri = "$baseURL/tokens/lookup"
-            Write-Host -ForegroundColor cyan -Object "Retrieving Token JSON from value: POST $uri"
-            $tokenJson = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body " { `"token`": `"$script:tokenValue`" }"
-        }
-        elseif ($script:id) {
-            $uri = "$baseURL/tokens/$script:id"
-            Write-Host -ForegroundColor cyan -Object "Retrieving Token JSON from ID: GET $uri"
-            $tokenJson = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri
-        }
+        $uri = "$baseURL/maintenanceWindows/$script:id"
+        Write-Host -ForegroundColor cyan -Object "Retrieving Maintenance Window JSON from ID: GET $uri"
+        $mwJson = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri
 
-        $tokenJson = $tokenJson | Select-Object -Property id, name, revoked, scopes
         # Make the changes that you want based on switches
-        if ($script:name) { $tokenJson.name = $script:name }
-        if ($script:scopes) { $tokenJson.scopes = $script:scopes }
-        if ($script:revoked) { $tokenJson.revoked = $true }
-        if ($script:active) { $tokenJson.revoked = $false }
+        if ($script:name) { $mwJson.name = $script:name }
+        if ($script:description) { $mwJson.description = $script:description }
+        if ($script:suppression) { $mwJson.suppression = $script:suppression }
+        if ($script:type) { $mwJson.type = if ($script:planned) { 'PLANNED' }else { 'UNPLANNED' } }
+        if ($script:startDate) { $mwJson.schedule.start = (get-date $script:startDate -Format 'yyyy-MM-dd HH:mm') }
+        if ($script:endDate) { $mwJson.schedule.end = (get-date $script:endDate -Format 'yyyy-MM-dd HH:mm') }
+        if ($script:recurrenceType) { $mwJson.schedule.recurrenceType = $script:recurrenceType }
+        if ($script:timeZone) { $mwJson.schedule.zoneId = ("UTC+{0}:00" -f $script:timeZone.BaseUtcOffset.Hours) }
 
+        # if ($script:recurrenceType -and $script:recurrenceType -ne 'ONCE') {
+
+        # }
+       
         # Send it back
-        $uri = "$baseURL/tokens/$script:id"
-        Write-Host -ForegroundColor cyan -Object "Update tenant token detail: PUT $uri"
-        $res = Invoke-WebRequest -Method PUT -Headers $headers -Uri $uri -Body ($tokenJson | ConvertTo-Json -Depth 5 -Compress)
+        $uri = "$baseURL/maintenanceWindows/$script:id"
+        Write-Host -ForegroundColor cyan -Object "Update Maintenance Window detail: PUT $uri"
+        $res = Invoke-WebRequest -Method PUT -Headers $headers -Uri $uri -Body ($mwJson | ConvertTo-Json -Depth 10 -Compress)
         if ($res.statusCode -eq 204) {
             return $tokenJson
         }
