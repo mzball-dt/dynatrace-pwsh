@@ -1,16 +1,24 @@
 <#
 .SYNOPSIS
-    From the output of get-tenantHostGroupDetail returns the Sum of HUs for each value of $property
+    Measure the Host Units of a list of hosts with arbitrary grouping options
 
 .DESCRIPTION
-    #todo
+    Some cmdlets such as get-tenantHostGroupDetail.ps1 return dense information that can be hard to process information from.
+    This cmdlet provides a shortcut utility for reporting of the Host Units consumed by any specific group.
+
+    Examples: 
+        - How many HU's are from full-stack hosts vs cloud-infrastructure hosts?
+        - How many HU's are consumed per OS type
+        - How many HU's are there in each Host Group?
 
 .NOTES
     Author: michael.ball
-    Version: 1.0.0 - 20200513
+    Version: 1.0.1 - 20201006
 
     Changelog:
-        1.0.0
+        1.0.1 - 20201006
+            Updated get-help/header comments
+        1.0.0 - 20200513
             Added sum, avg, min, max and allstats arguments
         0.0.2
             Added the help switch
@@ -76,13 +84,20 @@
 #>
 
 PARAM (
+    # Pipeline input. This is the object that will be measured
     [Parameter(ValueFromPipeline = $true)][array] $inputObject,
+    # The property to perform grouping on
     [String] $property = 'monitoringMode',
 
+    # Provide a Sum of the HU per $property
     [switch] $sum,
+    # Provide an Average of the HU per $property
     [Alias('Average')][switch] $avg,
+    # Provide the minimum of the HU per $property
     [Alias('Miniumum')][switch] $min,
+    # Provide the Maximum of the HU per $property
     [Alias('Maximum')][switch] $max,
+    # Provide all stats available per $property
     [switch] $allstats,
 
     # Output as CSV
@@ -134,7 +149,8 @@ End {
 
     if ($script:outputCSV) {
         $output | ConvertTo-Csv
-    } else {
+    }
+    else {
         $output
     }
 }
