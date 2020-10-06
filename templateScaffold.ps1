@@ -25,16 +25,15 @@ PARAM (
     # Token must have Smartscape Read access for a tenant
     [Alias('dttoken')][ValidateNotNullOrEmpty()][string] $token = $env:dttoken,
 
-    # The USQL Query to run against the cluster
-    [ValidateNotNullOrEmpty()][String]$USQL,
-    # What period length should be reported
-    [ValidateSet('minute', 'hour', 'day', 'week')][string]$periodType = 'hour',
-    # How many of these time periods back should be requested
-    [String]$timePeriod = 2,
-    # Number of results to pull back
-    [int]$pageSize = 500,
-    # Path to output a csv representation of the fetched data.
-    [string] $outfile,
+    <##################################
+    # Start of Script-specific params #
+    ##################################>
+
+
+
+    <#################################
+    # Stop of Script-specific params #
+    #################################>
 
     # Prints Help output
     [Alias('h')][switch] $help,
@@ -44,7 +43,7 @@ PARAM (
     [switch] $noCheckCertificate,
 
     # DO NOT USE - This is set by Script Author
-    [String[]]$script:tokenPermissionRequirements = @('DTAQLAccess', 'DataExport')
+    [String[]]$script:tokenPermissionRequirements = @('DataExport')
 )
 
 # Help flag checks
@@ -59,9 +58,6 @@ if (!$script:dtenv) {
 }
 elseif (!$script:token) {
     return Write-Error "token/dttoken was not populated - unable to continue"
-}
-elseif (!$script:USQL) {
-    return Write-Error "USQL argument was not populated - unable to continue"
 }
 
 # Try to 'fix' a missing https:// in the env
@@ -115,6 +111,35 @@ $headers = @{
     "Content-Type" = "application/json; charset=utf-8"
 }
 
+function confirm-supportedClusterVersion ($minimumVersion = 176, $logmsg = '') {
+    # Environment version check - cancel out if too old 
+    $uri = "$baseURL/config/clusterversion"
+    Write-Host -ForegroundColor cyan -Object "Cluster Version Check$logmsg`: GET $uri"
+    $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri 
+    $envVersion = $res.version -split '\.'
+    if ($envVersion -and (([int]$envVersion[0]) -ne 1 -or ([int]$envVersion[1]) -lt $minimumVersion)) {
+        Write-Error "Failed Environment version check - Expected: > 1.$minimumVersion - Got: $($res.version)"
+        exit
+    }
+}
+
+function confirm-requiredTokenPerms ($token, $requirePerms, $logmsg = '') {
+    # Token has required Perms Check - cancel out if it doesn't have what's required
+    $uri = "$baseURL/tokens/lookup"
+    $headers = @{
+        Authorization  = "Api-Token $token";
+        Accept         = "application/json; charset=utf-8";
+        "Content-Type" = "application/json; charset=utf-8"
+    }
+    Write-Host -ForegroundColor cyan -Object "Token Permissions Check$logmsg`: POST $uri"
+    $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$token`"}"
+    if (($requirePerms | Where-Object { $_ -notin $res.scopes }).count) {
+        Write-Error "Failed Token Permission check. Token requires: $($requirePerms -join ', ')"
+        write-host "Token provided only had: $($res.scopes -join ', ')"
+        exit
+    }
+}
+
 if (!$noCheckCompatibility) {
     <#
         Determine what type environment we have? This script will only work on tenants 
@@ -134,87 +159,22 @@ if (!$noCheckCompatibility) {
     # Script won't work on a cluster
     if ($envType -eq 'cluster') {
         write-error "'$script:dtenv' looks like an invalid URL (and Clusters are not supported by this script)"
-        return
+        exit
     }
     
-    # Environment version check - cancel out if too old 
-    $uri = "$baseURL/config/clusterversion"
-    Write-Host -ForegroundColor cyan -Object "Cluster Version Check: $uri"
-    $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri 
-    $envVersion = $res.version -split '\.'
-    if ($envVersion -and ([int]$envVersion[0]) -ne 1 -and ([int]$envVersion[1]) -lt 176) {
-        write-host "Failed Environment version check - Expected: > 1.176 - Got: $($res.version)"
-        return
-    }
-
-    # Token has required Perms Check - cancel out if it doesn't have what's required
-    $uri = "$baseURL/tokens/lookup"
-    Write-Host -ForegroundColor cyan -Object "Token Permissions Check: $uri"
-    $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:token`"}"
-    if (($script:tokenPermissionRequirements | Where-Object { $_ -notin $res.scopes }).count) {
-        write-host "Failed Token Permission check. Token requires: $($script:tokenPermissionRequirements -join ',')"
-        write-host "Token provided only had: $($res.scopes -join ',')"
-        return
-    }
+    # check that other requirements are met
+    confirm-supportedClusterVersion 192
+    confirm-requiredTokenPerms $script:token $script:tokenPermissionRequirements
 }
 
 function convertTo-jsDate($date) {
     return [Math]::Floor(1000 * (Get-Date ($date) -UFormat %s))
 }
 
-$timePeriodHash = @{
-    minute = 1000*60;
-    hour   = 1000*60*60;
-    day    = 1000*60*60*24;
-    week   = 1000*60*60*24*7;
-}
-
-$baseURL = "$baseURL/userSessionQueryLanguage/table"
-
-# Add the time and other params
-$now = convertTo-jsDate ([datetime]::UtcNow)
-$start = $now - $timePeriodHash[$script:periodType] * $script:timePeriod
-
-$baseURL = $baseURL + "?startTimestamp=$start&endTimestamp=$now&pageSize=$script:pageSize"
+$baseURL = "$script:dtenv/api/v1"
 
 <#
 ###########################
 # End of scaffold block #
 ###########################
 #>
-
-## Add API CALL
-
-<#
-###########################
-# Data manipulation #
-###########################
-#>
-
-$data = @()
-Foreach ($row in $response.values) {
-    $_row = New-Object PSObject
- 
-    for ($i = 0; $i -lt $response.columnNames.Length; $i++) {
-        $_row | Add-Member -MemberType NoteProperty -Name $response.columnNames[$i] -Value $row[$i]
-    }
-   
-    $data += $_row
-}
-
-
-<#
-###########################
-# Sample CSV output script #
-###########################
-#>
-
-# If we need to output to file
-if ($script:outfile) {
-    if (!(Split-Path $script:outfile | Test-Path -PathType Container)) {
-        New-Item -Path (Split-Path $script:outfile) -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
-    }
-    $outputFile = New-Item -Path $script:outfile -Force
-    $data | ConvertTo-Csv -NoTypeInformation | out-file -FilePath $script:outfile
-    write-host "Written to csv table to $($outputFile.fullname)" -ForegroundColor Green
-}
