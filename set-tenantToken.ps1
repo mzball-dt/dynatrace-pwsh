@@ -174,7 +174,7 @@ public static class TrustEverything
             exit
         }
     }
-
+    
     function confirm-requiredTokenPerms ($token, $requirePerms, $logmsg = '') {
         # Token has required Perms Check - cancel out if it doesn't have what's required
         $uri = "$baseURL/tokens/lookup"
