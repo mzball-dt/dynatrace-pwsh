@@ -175,7 +175,7 @@ if (!$noCheckCompatibility) {
     # Script won't work on a cluster
     if ($envType -eq 'cluster') {
         write-error "'$script:dtenv' looks like an invalid URL (and Clusters are not supported by this script)"
-        return
+        exit
     }
     
     # check that other requirements are met
