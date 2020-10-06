@@ -109,11 +109,12 @@ $headers = @{
 function confirm-supportedClusterVersion ($minimumVersion = 176, $logmsg = '') {
     # Environment version check - cancel out if too old 
     $uri = "$script:dtcluster/api/v1.0/onpremise/cluster"
+    # todo need a local headers var here :|
     Write-Host -ForegroundColor cyan -Object "Cluster Version Check$logmsg`: GET $uri"
     $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri 
     $envVersion = $res[0].buildVersion -split '\.'
     if ($envVersion -and ([int]$envVersion[0]) -ne 1 -and ([int]$envVersion[1]) -lt $minimumVersion) {
-        write-host "Failed Environment version check - Expected: > 1.176 - Got: $($res.version)"
+        Write-Error "Failed Environment version check - Expected: > 1.176 - Got: $($res.version)"
         exit
     }
 }
@@ -121,11 +122,16 @@ function confirm-supportedClusterVersion ($minimumVersion = 176, $logmsg = '') {
 function confirm-requireTokenPerms ($token, $requirePerms, $logmsg = '') {
     # Token has required Perms Check - cancel out if it doesn't have what's required
     $uri = "$baseURL/tokens/lookup"
+    $headers = @{
+        Authorization  = "Api-Token $token";
+        Accept         = "application/json; charset=utf-8";
+        "Content-Type" = "application/json; charset=utf-8"
+    }
     Write-Host -ForegroundColor cyan -Object "Token Permissions Check$logmsg`: POST $uri"
     $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:clustertoken`"}"
     if (($requirePerms | Where-Object { $_ -notin $res.scopes }).count) {
-        write-host "Failed Token Permission check. Token requires: $($requirePerms -join ',')"
-        write-host "Token provided only had: $($res.scopes -join ',')"
+        Write-Error "Failed Token Permission check. Token requires: $($requirePerms -join ',')"
+        Write-Host "Token provided only had: $($res.scopes -join ',')"
         exit
     }
 }
@@ -163,8 +169,8 @@ if (!$noCheckCompatibility) {
 
 # Handles the fetching - used mostly by the cluster wide checks 
 $headers = @{
-    "Authorization"  = "Api-Token $clustertoken"
-    "Content-Type" = "application/json"
+    "Authorization" = "Api-Token $clustertoken"
+    "Content-Type"  = "application/json"
 }
 $baseURL = "$dtcluster/api/v1.0"
 
@@ -172,6 +178,6 @@ $baseURL = "$dtcluster/api/v1.0"
 $uri = "$baseURL/onpremise/users"
 write-host -ForegroundColor cyan "Host Entity information request: $uri"
 $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri
-$res = $res | Select-Object -Property 'id','email','firstName','lastName','groups'
+$res = $res | Select-Object -Property 'id', 'email', 'firstName', 'lastName', 'groups'
 
 return $res

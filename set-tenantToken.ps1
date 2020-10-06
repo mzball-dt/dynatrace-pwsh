@@ -12,9 +12,11 @@
 
 .Notes
     Author: Michael Ball (extension) 
-    Version: 1.0.0 - 20200701
+    Version: 1.0.1 - 20201005
 
-    ChangeLog
+    ChangeLog:
+        1.0.1
+            Refactor + patched issue with version check not working as expected
         1.0.0
         - Fixed some unnecessary outputs
         0.2
@@ -161,6 +163,35 @@ public static class TrustEverything
         "Content-Type" = "application/json; charset=utf-8"
     }
 
+    function confirm-supportedClusterVersion ($minimumVersion = 176, $logmsg = '') {
+        # Environment version check - cancel out if too old 
+        $uri = "$baseURL/config/clusterversion"
+        Write-Host -ForegroundColor cyan -Object "Cluster Version Check$logmsg`: GET $uri"
+        $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri 
+        $envVersion = $res.version -split '\.'
+        if ($envVersion -and (([int]$envVersion[0]) -ne 1 -or ([int]$envVersion[1]) -lt $minimumVersion)) {
+            Write-Error "Failed Environment version check - Expected: > 1.$minimumVersion - Got: $($res.version)"
+            exit
+        }
+    }
+
+    function confirm-requiredTokenPerms ($token, $requirePerms, $logmsg = '') {
+        # Token has required Perms Check - cancel out if it doesn't have what's required
+        $uri = "$baseURL/tokens/lookup"
+        $headers = @{
+            Authorization  = "Api-Token $token";
+            Accept         = "application/json; charset=utf-8";
+            "Content-Type" = "application/json; charset=utf-8"
+        }
+        Write-Host -ForegroundColor cyan -Object "Token Permissions Check$logmsg`: POST $uri"
+        $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$token`"}"
+        if (($requirePerms | Where-Object { $_ -notin $res.scopes }).count) {
+            Write-Error "Failed Token Permission check. Token requires: $($requirePerms -join ',')"
+            write-host "Token provided only had: $($res.scopes -join ',')"
+            exit
+        }
+    }
+
     if (!$noCheckCompatibility) {
         <#
         Determine what type environment we have? This script will only work on tenants 
@@ -179,29 +210,12 @@ public static class TrustEverything
 
         # Script won't work on a cluster
         if ($envType -eq 'cluster') {
-            write-error "'$script:dtenv' looks like an invalid URL (and Clusters are not supported by this script)"
-            return
+            return write-error "'$script:dtenv' looks like an invalid URL (and Clusters are not supported by this script)"
         }
-    
-        # Environment version check - cancel out if too old 
-        $uri = "$baseURL/config/clusterversion"
-        Write-Host -ForegroundColor cyan -Object "Cluster Version Check: GET $uri"
-        $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri
-        $envVersion = $res.version -split '\.'
-        if ($envVersion -and ([int]$envVersion[0]) -ne 1 -and ([int]$envVersion[1]) -lt 176) {
-            write-error "Failed Environment version check - Expected: > 1.176 - Got: $($res.version)"
-            return
-        }
-
-        # Token has required Perms Check - cancel out if it doesn't have what's required
-        $uri = "$baseURL/tokens/lookup"
-        Write-Host -ForegroundColor cyan -Object "Token Permissions Check: POST $uri"
-        $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:token`"}"
-        if (($script:tokenPermissionRequirements | Where-Object { $_ -notin $res.scopes }).count) {
-            write-host "Failed Token Permission check. Token requires: $($script:tokenPermissionRequirements -join ',')"
-            write-error "Token provided only had: $($res.scopes -join ',')"
-            return
-        }
+   
+        # check that other requirements are met
+        confirm-supportedClusterVersion 192
+        confirm-requiredTokenPerms $script:token $script:tokenPermissionRequirements
 
         # Can't edit a token with itself
         if ($res.id -eq $script:id -or $script:token -eq $script:tokenValue) {
@@ -224,9 +238,9 @@ Process {
     if (($script:scopes | Where-Object { $_ -cnotin $validTokenPerms }).count) {
         $script:scopes | Where-Object { $_ -cnotin $validTokenPerms } | ForEach-Object {
             Write-Error "Unknown/Invalid Token scope '$_'"
-            if ($script:scopes | Where-Object { $_ -in $validTokenPerms }) {
-                Write-Error "This was a capitalisation problem"
-            }
+            # if ($script:scopes | Where-Object { $_ -in $validTokenPerms }) {
+            #     Write-Error "This was a capitalisation problem"
+            # }
         }
         return
     }
@@ -260,8 +274,9 @@ Process {
         $res = Invoke-RestMethod -Method POST -Headers $headers -uri $uri -Body $reqBody -ErrorAction Stop
         return $res
     
-    # Delete the Token
-    } elseif ($script:delete) {
+        # Delete the Token
+    }
+    elseif ($script:delete) {
         $uri = "$baseURL/tokens/$script:id"
         Write-host -ForegroundColor cyan -Object "Permanently deleting token: DELETE $uri"
         $res = Invoke-RestMethod -Method Delete -Headers $headers -uri $uri -Body $reqBody -ErrorAction Stop
@@ -271,7 +286,7 @@ Process {
     # Edit what was provided and send it back
     else {
         if (!$script:id -and !$script:tokenValue) { return Write-Error "No Token ID or Value was provided to set/update" }
-        if ($script:expiryTimeValue) { Write-Warning "Expiry parameters are not supported for updates"}
+        if ($script:expiryTimeValue) { Write-Warning "Expiry parameters are not supported for updates" }
 
         if (!$script:id -and $script:tokenValue) {
             # IF we don't have the id - get it now - this will also give us the JSON
@@ -285,7 +300,7 @@ Process {
             $tokenJson = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri
         }
 
-        $tokenJson = $tokenJson | Select-Object -Property id,name,revoked,scopes
+        $tokenJson = $tokenJson | Select-Object -Property id, name, revoked, scopes
         # Make the changes that you want based on switches
         if ($script:name) { $tokenJson.name = $script:name }
         if ($script:scopes) { $tokenJson.scopes = $script:scopes }
