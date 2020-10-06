@@ -71,9 +71,9 @@ PARAM (
 
     # A specific tenant (by name) from the list of known tenants
     [ValidateNotNullOrEmpty()][String] $tenantid,
-    # 
+    # An 'include' filter applied to the tenant names in a cluster
     [ValidateNotNullOrEmpty()][String] $filter,
-    # 
+    # A list of tags must all be present for a tenant to be included
     [ValidateNotNullOrEmpty()][String[]] $tag,
 
     # The Script block to execute for each tenant
@@ -314,7 +314,7 @@ $tempEnvTokens = $tenantList | ForEach-Object { $o = @() } {
     }
     $body = @"
     {
-        "name": "ScriptToken",
+        "name": "Temporary ScriptToken",
         "expiresIn": {"value": 120,"unit": "SECONDS"},
         "scopes": $($envtokenPerms | ConvertTo-Json)
     }
