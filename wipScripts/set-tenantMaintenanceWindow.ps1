@@ -244,16 +244,39 @@ PROCESS {
 
         # Check that we have all the params that we require to create a new MaintenanceWindow
         $requiredParams = 'name', 'description', 'suppression', 'recurrenceType', 'startDate', 'endDate'
+
+        # different recurrences require different params
+        if ($script:recurrenceType -ne 'ONCE') {
+            $requiredParams += 'windowStart', 'durationMinutes'
+            switch ($script:recurrenceType) {
+                'WEEKLY' { $requiredParams += 'dayOfWeek' }
+                'MONTHLY' { $requiredParams += 'dayOfMonth' }
+            }
+        }
         $badRequiredParams = @()
         foreach ($paramName in $requiredParams) {
             $paramVal = Get-Variable -Scope 'script' -Name $paramName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty value
             if ( $null -eq $paramVal -or $paramVal.ToString() -eq '') { $badRequiredParams += $paramName }
+            if ($paramName -eq 'dayOfMonth' -and $paramVal -eq 0) { $badRequiredParams += $paramName } # dayOfMonth defaults to 0 due to int casting
         }
         if ($badRequiredParams) {
-            return Write-Error "Required Parameters are missing/invalid: $($badRequiredParams -join ', ')"
+            Write-Error "Required Parameters are missing/invalid: $($badRequiredParams -join ', ')"
+            exit
         }
 
-        # Check the recurrance type required perms as well
+        # Assemble a recurrence object if required
+        $recurrenceDetails = if ($script:recurrenceType -ne 'ONCE') {
+            $r = @{
+                startTime       = $script:windowStart;
+                durationMinutes = $script:durationMinutes; 
+            }
+            switch ($script:recurrenceType) {
+                'WEEKLY' { $r.dayOfWeek = $script:dayOfWeek }
+                'MONTHLY' { $r.dayOfMonth = $script:dayOfMonth }
+            }
+            "`"recurrence`": $($r | ConvertTo-Json -Compress),"
+        }
+        else { "" }
 
         $uri = "$baseURL/maintenanceWindows"
         $reqBody = @"
@@ -264,12 +287,14 @@ PROCESS {
             "suppression": "$script:suppression",
             "schedule": {
               "recurrenceType": "$script:recurrenceType",
+              $recurrenceDetails
               "start": "$(get-date $script:startDate -Format 'yyyy-MM-dd HH:mm')",
               "end": "$(get-date $script:endDate -Format 'yyyy-MM-dd HH:mm')",
               "zoneId": "$("UTC+{0}:00" -f $script:timeZone.BaseUtcOffset.Hours)"
             }
         }
 "@
+
         Write-host -ForegroundColor cyan -Object "Requesting creation of new maintenance Window: POST $uri"
         try {
             return Invoke-RestMethod -Method POST -Headers $headers -uri $uri -Body $reqBody -ErrorAction stop
@@ -301,12 +326,31 @@ PROCESS {
         if ($script:type) { $mwJson.type = if ($script:planned) { 'PLANNED' }else { 'UNPLANNED' } }
         if ($script:startDate) { $mwJson.schedule.start = (get-date $script:startDate -Format 'yyyy-MM-dd HH:mm') }
         if ($script:endDate) { $mwJson.schedule.end = (get-date $script:endDate -Format 'yyyy-MM-dd HH:mm') }
-        if ($script:recurrenceType) { $mwJson.schedule.recurrenceType = $script:recurrenceType }
         if ($script:timeZone) { $mwJson.schedule.zoneId = ("UTC+{0}:00" -f $script:timeZone.BaseUtcOffset.Hours) }
+        if ($script:recurrenceType) { 
+            $mwJson.schedule.recurrenceType = $script:recurrenceType 
+            
+            switch ($script:recurrenceType) {
+                'ONCE' { 
+                    # WindowStart + Duration
+                }
+                'DAILY' { 
+                    # WindowStart + Duration
+                }
+                'WEEKLY' { 
+                    # WindowStart + Duration
+                    # Day of the Week
+                }
+                'MONTHYLY' { 
+                    # Window Start + Duration
+                    # Day of the Month
+                }
+                Default {
 
-        # if ($script:recurrenceType -and $script:recurrenceType -ne 'ONCE') {
+                }
+            }
+        }
 
-        # }
        
         # Send it back
         $uri = "$baseURL/maintenanceWindows/$script:id"
