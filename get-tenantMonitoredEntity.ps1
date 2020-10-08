@@ -212,7 +212,7 @@ if (!$noCheckCompatibility) {
     }
     
     confirm-supportedClusterVersion 194
-    confirm-requireTokenPerms $script:token $script:tokenPermissionRequirements
+    confirm-requiredTokenPerms $script:token $script:tokenPermissionRequirements
 }
 
 function convertTo-jsDate($date) {

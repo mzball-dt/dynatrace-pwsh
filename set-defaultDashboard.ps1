@@ -180,7 +180,7 @@ if (!$noCheckCompatibility) {
     }
     
     confirm-supportedClusterVersion 182 -logmsg ' (Destination Cluster)'
-    confirm-requireTokenPerms $script:token $script:tokenPermissionRequirements -logmsg ' (Token for Destination Cluster)'
+    confirm-requiredTokenPerms $script:token $script:tokenPermissionRequirements -logmsg ' (Token for Destination Cluster)'
 }
 
 <#########################
@@ -217,7 +217,7 @@ if (!$script:sourceFile) {
     }
     
     confirm-supportedClusterVersion 182 -logmsg ' (Source Cluster)'
-    confirm-requireTokenPerms $script:sourceToken "DataExport", "ReadConfig" -logmsg ' (Token for Source Cluster)'
+    confirm-requiredTokenPerms $script:sourceToken "DataExport", "ReadConfig" -logmsg ' (Token for Source Cluster)'
 }
 
 function import-DashboardJSON ($environment, $token, [String]$dashboardJSON) {

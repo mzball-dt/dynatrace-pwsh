@@ -168,7 +168,7 @@ if (!$noCheckCompatibility) {
     }
     
     confirm-supportedClusterVersion 176
-    confirm-requireTokenPerms $script:token $script:tokenPermissionRequirements
+    confirm-requiredTokenPerms $script:token $script:tokenPermissionRequirements
 }
 
 $uri = "$baseURL/tokens/lookup"

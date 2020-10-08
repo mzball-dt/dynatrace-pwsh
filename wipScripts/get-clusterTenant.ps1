@@ -128,7 +128,7 @@ function confirm-supportedClusterVersion ($minimumVersion = 176, $logmsg = '') {
     }
 }
 
-function confirm-requireTokenPerms ($token, $requirePerms, $logmsg = '') {
+function confirm-requiredTokenPerms ($token, $requirePerms, $logmsg = '') {
     # Token has required Perms Check - cancel out if it doesn't have what's required
     $uri = "$baseURL/tokens/lookup"
     Write-Host -ForegroundColor cyan -Object "Token Permissions Check$logmsg`: POST $uri"
@@ -163,7 +163,7 @@ if (!$noCheckCompatibility) {
     }
     
     confirm-supportedClusterVersion 184
-    confirm-requireTokenPerms $script:clustertoken $script:tokenPermissionRequirements
+    confirm-requiredTokenPerms $script:clustertoken $script:tokenPermissionRequirements
 }
 
 <#########################

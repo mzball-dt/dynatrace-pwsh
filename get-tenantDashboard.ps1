@@ -190,7 +190,7 @@ if (!$noCheckCompatibility) {
     }
     
     confirm-supportedClusterVersion 176
-    confirm-requireTokenPerms $script:token $script:tokenPermissionRequirements
+    confirm-requiredTokenPerms $script:token $script:tokenPermissionRequirements
 }
 function convertTo-jsDate($date) {
     return [Math]::Floor(1000 * (Get-Date ($date) -UFormat %s))
@@ -214,7 +214,6 @@ Foreach ($row in $response.dashboards) {
     else {
         $completeDashboard = Invoke-RestMethod -Method GET -Uri "$uri/$($row.id)" -Headers $headers -skipcertificatecheck
     }
-
 
     $dashboardSummary = New-Object psobject
     $dashboardSummary | Add-Member -MemberType NoteProperty -Name "Owner" -Value $completeDashboard.dashboardMetadata.owner
