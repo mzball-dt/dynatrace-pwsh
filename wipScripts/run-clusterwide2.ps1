@@ -26,10 +26,12 @@
 
 .NOTES
     Author: michael.ball
-    Version: 2.0.0 - 20200907
+    Version: 2.0.1 - 20201106
     Requirement: Powershell v5.0
 
     Changelog:  
+        2.0.1
+            Update to fix broken -tenantid functionality. This will now work as expected.
         2.0.0
             By default 'discovers' and executes $Scriptblock against all tenants in the cluster
             Target tenants can be filtered using $tenantId/$filter/$tag parameters
@@ -235,8 +237,8 @@ $uri = "$baseURL/environments"
 
 $script:tenantList = @()
 # Did they specify an id?
-if ( $script:id ) {
-    $uri += "/$script:id"
+if ( $script:tenantid ) {
+    $uri += "/$script:tenantid"
     write-host -ForegroundColor Cyan "Fetching environment based on provided ID: GET $uri"
     $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri
 
@@ -409,8 +411,8 @@ function Manage-Job ([System.Collections.Queue] $jobQ, [int] $MaxJobs = 8, $dela
 }
 
 #filter tenant list if necessary
-if ( $script:id ) {
-    $tenantList = $tenantList | Where-Object -Property name -eq -Value $script:id
+if ( $script:tenantId ) {
+    $tenantList = $tenantList | Where-Object -Property name -eq -Value $script:tenantId
 }
 
 $jobQueue = New-Object System.Collections.Queue
