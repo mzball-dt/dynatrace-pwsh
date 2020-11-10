@@ -30,15 +30,14 @@
 
 .EXAMPLE
     (out of date)
-    ./copy-dashboard.ps1 -sourceEnvironment "https://server.example.com/e/f9degggf-1115-468a-a997-f9degggfc64a" -sourceToken "asdfa23123jlkf" -sourceDashboardID "123123-123jlkj-123-3-213" -destinationEnvironment "https://server.example1.com/e/e2a187ff-ba0f-4078-e2b8-126e2b8ba187" -destinationToken "adf1231414"
+    ./copy-dashboard.ps1 -dtenv "https://server.example1.com/e/e2a187ff-ba0f-4078-e2b8-126e2b8ba187" -token "adf1231414" -sourceEnvironment "https://server.example.com/e/f9degggf-1115-468a-a997-f9degggfc64a" -sourceToken "asdfa23123jlkf" -sourceDashboardID "123123-123jlkj-123-3-213"
 
     Moves a dashboard between 2 different environments
 
 .EXAMPLE
-    (out of date)
-    ./copy-dashboard.ps1 -sourceEnvironment "https://server.example.com/e/f92341bf-1435-468a-a997-ecd4f9degggf" -sourceToken "asdfa23123jlkf" -sourceDashboardID "123123-123jlkj-123-3-213" 
+    ./copy-dashboard.ps1 -dtenv "https://server.example.com/e/f92341bf-1435-468a-a997-ecd4f9degggf" -token "asdfa23123jlkf" -sourceDashboardID "123123-123jlkj-123-3-213" 
 
-    When no destination Environment is set the destination will be the same as the source environment
+    When no source Environment is set the source is assumed to be the same env as the destination
 #>
 
 PARAM (
@@ -153,9 +152,9 @@ function confirm-supportedClusterVersion ($minimumVersion = 176, $logmsg = '') {
     }
 }
 
-function confirm-requireTokenPerms ($token, $requirePerms, $logmsg = '', $envUrl) {
+function confirm-requireTokenPerms ($token, $requirePerms, $envUrl = $script:dtenv, $logmsg = '') {
     # Token has required Perms Check - cancel out if it doesn't have what's required
-    if ([string]::IsNullOrEmpty($envUrl)) { $uri = "$baseURL/tokens/lookup" }
+    $uri = "$envUrl/api/v1/tokens/lookup"
     Write-Host -ForegroundColor cyan -Object "Token Permissions Check$logmsg`: POST $uri"
     $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:token`"}"
     if (($requirePerms | Where-Object { $_ -notin $res.scopes }).count) {
@@ -211,21 +210,21 @@ if (!$script:sourceFile) {
         Managed Cluster = https://*
     #>
     $envType = 'cluster'
-    if ($script:dtenv -like "*.live.dynatrace.com") {
+    if ($script:sourceEnvironment -like "*.live.dynatrace.com") {
         $envType = 'env'
     }
-    elseif ($script:dtenv -like "http*://*/e/*") {
+    elseif ($script:sourceEnvironment -like "http*://*/e/*") {
         $envType = 'env'
     }
 
     # Script won't work on a cluster
     if ($envType -eq 'cluster') {
-        write-error "'$script:dtenv' looks like an invalid URL (and Clusters are not supported by this script)"
+        write-error "'$script:sourceEnvironment' looks like an invalid URL (and Clusters are not supported by this script)"
         return
     }
     
     confirm-supportedClusterVersion 182 -logmsg ' (Source Cluster)'
-    confirm-requireTokenPerms $script:sourceToken "DataExport", "ReadConfig" -logmsg ' (Token for Source Cluster)', $sourceEnvironment
+    confirm-requireTokenPerms $script:sourceToken "DataExport", "ReadConfig" -envUrl $script:sourceEnvironment -logmsg ' (Token for Source Cluster)'
 }
 
 function import-DashboardJSON ($environment, $token, [String]$dashboardJSON) {
@@ -299,10 +298,11 @@ $source = export-Dashboard $sourceEnvironment $sourceToken $sourceDashboardID
 # destinationReportName isn't required - populate it from the source dashboard if it's missing
 if ($script:destinationReportName) {
     $source.dashboardMetadata.name = $script:destinationReportName
-    # Removal of ID and Owner is necessary to ensure 
-    $source.PSObject.properties.remove('id')
-    $source.dashboardMetadata.PSObject.properties.remove('owner')
 }
+
+# Removal of ID and Owner is necessary to ensure 
+$source.PSObject.properties.remove('id')
+$source.dashboardMetadata.PSObject.properties.remove('owner')
 
 # Convert the exported PSObject back to JSON
 $json = $source | ConvertTo-Json -Depth 20 -Compress
