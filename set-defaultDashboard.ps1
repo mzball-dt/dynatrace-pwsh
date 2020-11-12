@@ -8,11 +8,17 @@
     To provide support for links specific to the environment, the string %%ENV%% is replaced with the environment URL.
 
 .NOTES
-    Version: alpha - 20201001
     Author: Michael Ball
+    Version: 1.2.0 - 20201112
     Requirements: Powershell 5+
+
     Changelog:
-        1.0.1
+        1.2.0 - 20201112
+            Merged the different 1.x versions into 1.2.0.
+            Fixed bugs with checking the 'goodness' of the source environment's token
+        1.1.0 - 20201007
+            Added the destinationEnvironmentName param for resolving the %%ENVNAME%% template string
+        1.0.1 - 20201001
             Fixed a bug that caused a pre-existing dashboard to not be updated
         1.0.0
             MVP
@@ -36,8 +42,8 @@ PARAM (
     [ValidateNotNullOrEmpty()][string]$destinationReportName,
     # A default dashboard will by default not have a normal user attached
     [ValidateNotNullOrEmpty()][string]$destinationReportOwner = 'admin',
-    # Secret String used to identify the target template report
-    #[ValidateNotNullOrEmpty()][string]$destinationReportMarker = '', # todo
+    # Required if the %%ENVNAME%% template string is present in the template. Should represent the environment name
+    [ValidateNotNullOrEmpty()][string]$destinationEnvironmentName,
 
     # The json file that represents the source dashboard
     [ValidateScript( { if (Test-Path -Path $_ -PathType Leaf) { $true } else { throw "Unable to validate file '$_' exists" } })][String]$sourceFile,
@@ -135,23 +141,36 @@ function confirm-supportedClusterVersion ($minimumVersion = 176, $logmsg = '') {
     Write-Host -ForegroundColor cyan -Object "Cluster Version Check$logmsg`: GET $uri"
     $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri 
     $envVersion = $res.version -split '\.'
-    if ($envVersion -and (([int]$envVersion[0]) -ne 1 -or ([int]$envVersion[1]) -lt $minimumVersion)) {
-        Write-Error "Failed Environment version check - Expected: > 1.$minimumVersion - Got: $($res.version)"
+    if ($envVersion -and ([int]$envVersion[0]) -ne 1 -and ([int]$envVersion[1]) -lt $minimumVersion) {
+        write-Error "Failed Environment version check - Expected: > 1.176 - Got: $($res.version)"
         exit
     }
 }
-function confirm-requiredTokenPerms ($token, $requirePerms, $logmsg = '') {
+
+function confirm-requireTokenPerms ($token, $requirePerms, $envUrl = $script:dtenv, $logmsg = '') {
     # Token has required Perms Check - cancel out if it doesn't have what's required
-    $uri = "$baseURL/tokens/lookup"
+    $uri = "$envUrl/api/v1/tokens/lookup"
+    Write-Host -ForegroundColor cyan -Object "Token Permissions Check$logmsg`: POST $uri"
+    $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:token`"}"
+    if (($requirePerms | Where-Object { $_ -notin $res.scopes }).count) {
+        write-host "Failed Token Permission check. Token requires: $($requirePerms -join ',')"
+        write-host "Token provided only had: $($res.scopes -join ',')"
+        exit
+    }
+}
+
+function confirm-requiredTokenPerms ($token, $requirePerms, $envUrl = $script:dtenv, $logmsg = '') {
+    # Token has required Perms Check - cancel out if it doesn't have what's required
+    $uri = "$envUrl/api/v1/tokens/lookup"
     $headers = @{
         Authorization  = "Api-Token $token";
         Accept         = "application/json; charset=utf-8";
         "Content-Type" = "application/json; charset=utf-8"
     }
     Write-Host -ForegroundColor cyan -Object "Token Permissions Check$logmsg`: POST $uri"
-    $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$token`"}"
+    $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:token`"}"
     if (($requirePerms | Where-Object { $_ -notin $res.scopes }).count) {
-        Write-Error "Failed Token Permission check. Token requires: $($requirePerms -join ',')"
+        write-error "Failed Token Permission check. Token requires: $($requirePerms -join ',')"
         write-host "Token provided only had: $($res.scopes -join ',')"
         exit
     }
@@ -203,21 +222,21 @@ if (!$script:sourceFile) {
         Managed Cluster = https://*
     #>
     $envType = 'cluster'
-    if ($script:dtenv -like "*.live.dynatrace.com") {
+    if ($script:sourceEnvironment -like "*.live.dynatrace.com") {
         $envType = 'env'
     }
-    elseif ($script:dtenv -like "http*://*/e/*") {
+    elseif ($script:sourceEnvironment -like "http*://*/e/*") {
         $envType = 'env'
     }
 
     # Script won't work on a cluster
     if ($envType -eq 'cluster') {
-        write-error "'$script:dtenv' looks like an invalid URL (and Clusters are not supported by this script)"
+        write-error "'$script:sourceEnvironment' looks like an invalid URL (and Clusters are not supported by this script)"
         return
     }
     
     confirm-supportedClusterVersion 182 -logmsg ' (Source Cluster)'
-    confirm-requiredTokenPerms $script:sourceToken "DataExport", "ReadConfig" -logmsg ' (Token for Source Cluster)'
+    confirm-requiredTokenPerms $script:sourceToken "DataExport", "ReadConfig" -envUrl $script:sourceEnvironment -logmsg ' (Token for Source Cluster)'
 }
 
 function import-DashboardJSON ($environment, $token, [String]$dashboardJSON) {
@@ -307,12 +326,11 @@ if (!$script:force) {
         Write-host "We found exactly one dashboard"
         $existingDashboard = $filtered[0]
     }
-
 }
 
 # If we're forcing the new creation or couldn't find a recognisable pre-existing reports
 if ($script:force -or $noExistingDashboard) {
-    write-host "f:$force and nED: $noExistingDashboard"
+    Write-Verbose "f:$force and nED: $noExistingDashboard"
 
     # update the output for importing
     $import.PSObject.properties.remove('id')
@@ -351,9 +369,11 @@ else {
     $url = "$script:dtenv/api/config/v1/dashboards/$($existingDashboard.id)"
     $json = $existingDashboardData | ConvertTo-Json -Depth 20 -Compress
     $json = $json -replace "%%ENV%%", "$script:dtenv"
+    if ($script:destinationEnvironmentName) { $json = $json -replace "%%ENVNAME%%", "$script:destinationEnvironmentName" }
 
     write-host -ForegroundColor cyan "Update the existing default dashboard: PUT $url"
     Invoke-RestMethod -Method PUT -Headers $headers -Uri $url -Body $json
 }
 
 Write-Host -ForegroundColor Green "Complete"
+
