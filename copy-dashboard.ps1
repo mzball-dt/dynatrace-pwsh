@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Copy a Dashboard from one Tenant to another
 
@@ -12,6 +12,11 @@
         - General export of Dashboard json to file
 
     Changelog: 
+        v2.1
+            Updated confirm-requireTokenPerms to allow check of source environment
+            Removes ID and owner for dashboard
+            Added first iteration of Dashboard validation using built-in API
+            Updated by Adrian Chen
         v2.0
             Updated name and brought across the default scaffold
             some shuffling of the input args (enough to break compatibility and make this v2)
@@ -19,21 +24,20 @@
             Dashboard movement works as expected with user interface
 
 .NOTES
-    Version: v1.1 - 20200709
+    Version: v2.1 - 20201110
     Author: michael.ball
     Requirements: Powershell 5+
 
 .EXAMPLE
     (out of date)
-    ./copy-dashboard.ps1 -sourceEnvironment "https://server.example.com/e/f9degggf-1115-468a-a997-f9degggfc64a" -sourceToken "asdfa23123jlkf" -sourceDashboardID "123123-123jlkj-123-3-213" -destinationEnvironment "https://server.example1.com/e/e2a187ff-ba0f-4078-e2b8-126e2b8ba187" -destinationToken "adf1231414"
+    ./copy-dashboard.ps1 -dtenv "https://server.example1.com/e/e2a187ff-ba0f-4078-e2b8-126e2b8ba187" -token "adf1231414" -sourceEnvironment "https://server.example.com/e/f9degggf-1115-468a-a997-f9degggfc64a" -sourceToken "asdfa23123jlkf" -sourceDashboardID "123123-123jlkj-123-3-213"
 
     Moves a dashboard between 2 different environments
 
 .EXAMPLE
-    (out of date)
-    ./copy-dashboard.ps1 -sourceEnvironment "https://server.example.com/e/f92341bf-1435-468a-a997-ecd4f9degggf" -sourceToken "asdfa23123jlkf" -sourceDashboardID "123123-123jlkj-123-3-213" 
+    ./copy-dashboard.ps1 -dtenv "https://server.example.com/e/f92341bf-1435-468a-a997-ecd4f9degggf" -token "asdfa23123jlkf" -sourceDashboardID "123123-123jlkj-123-3-213" 
 
-    When no destination Environment is set the destination will be the same as the source environment
+    When no source Environment is set the source is assumed to be the same env as the destination
 #>
 
 PARAM (
@@ -142,24 +146,19 @@ function confirm-supportedClusterVersion ($minimumVersion = 176, $logmsg = '') {
     Write-Host -ForegroundColor cyan -Object "Cluster Version Check$logmsg`: GET $uri"
     $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri 
     $envVersion = $res.version -split '\.'
-    if ($envVersion -and (([int]$envVersion[0]) -ne 1 -or ([int]$envVersion[1]) -lt $minimumVersion)) {
-        Write-Error "Failed Environment version check - Expected: > 1.$minimumVersion - Got: $($res.version)"
+    if ($envVersion -and ([int]$envVersion[0]) -ne 1 -and ([int]$envVersion[1]) -lt $minimumVersion) {
+        write-host "Failed Environment version check - Expected: > 1.176 - Got: $($res.version)"
         exit
     }
 }
 
-function confirm-requiredTokenPerms ($token, $requirePerms, $logmsg = '') {
+function confirm-requireTokenPerms ($token, $requirePerms, $envUrl = $script:dtenv, $logmsg = '') {
     # Token has required Perms Check - cancel out if it doesn't have what's required
-    $uri = "$baseURL/tokens/lookup"
-    $headers = @{
-        Authorization  = "Api-Token $token";
-        Accept         = "application/json; charset=utf-8";
-        "Content-Type" = "application/json; charset=utf-8"
-    }
+    $uri = "$envUrl/api/v1/tokens/lookup"
     Write-Host -ForegroundColor cyan -Object "Token Permissions Check$logmsg`: POST $uri"
-    $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$token`"}"
+    $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:token`"}"
     if (($requirePerms | Where-Object { $_ -notin $res.scopes }).count) {
-        Write-Error "Failed Token Permission check. Token requires: $($requirePerms -join ',')"
+        write-host "Failed Token Permission check. Token requires: $($requirePerms -join ',')"
         write-host "Token provided only had: $($res.scopes -join ',')"
         exit
     }
@@ -184,11 +183,11 @@ if (!$noCheckCompatibility) {
     # Script won't work on a cluster
     if ($envType -eq 'cluster') {
         write-error "'$script:dtenv' looks like an invalid URL (and Clusters are not supported by this script)"
-        exit
+        return
     }
     
     confirm-supportedClusterVersion 182 -logmsg ' (Destination Cluster)'
-    confirm-requiredTokenPerms $script:token $script:tokenPermissionRequirements -logmsg ' (Token for Destination Cluster)'
+    confirm-requireTokenPerms $script:token $script:tokenPermissionRequirements -logmsg ' (Token for Destination Cluster)'
 }
 
 <#########################
@@ -211,21 +210,21 @@ if (!$script:sourceFile) {
         Managed Cluster = https://*
     #>
     $envType = 'cluster'
-    if ($script:dtenv -like "*.live.dynatrace.com") {
+    if ($script:sourceEnvironment -like "*.live.dynatrace.com") {
         $envType = 'env'
     }
-    elseif ($script:dtenv -like "http*://*/e/*") {
+    elseif ($script:sourceEnvironment -like "http*://*/e/*") {
         $envType = 'env'
     }
 
     # Script won't work on a cluster
     if ($envType -eq 'cluster') {
-        write-error "'$script:dtenv' looks like an invalid URL (and Clusters are not supported by this script)"
+        write-error "'$script:sourceEnvironment' looks like an invalid URL (and Clusters are not supported by this script)"
         return
     }
     
     confirm-supportedClusterVersion 182 -logmsg ' (Source Cluster)'
-    confirm-requiredTokenPerms $script:sourceToken "DataExport", "ReadConfig" -logmsg ' (Token for Source Cluster)'
+    confirm-requireTokenPerms $script:sourceToken "DataExport", "ReadConfig" -envUrl $script:sourceEnvironment -logmsg ' (Token for Source Cluster)'
 }
 
 function import-DashboardJSON ($environment, $token, [String]$dashboardJSON) {
@@ -273,6 +272,26 @@ function export-Dashboard ($environment, $token, $dashboardID) {
     return $response
 }
 
+## First iteration of addition validate dashboard
+function validate-DashboardJSON ($environment, $token, [String]$dashboardJSON) {
+    $headers = @{
+        Authorization  = "Api-Token $Token"
+        "Content-Type" = "application/json"
+    }
+    $url = "$environment/api/config/v1/dashboards/validator"
+    try {
+        $response = Invoke-WebRequest -Method POST -Headers $headers -Uri $url -Body $dashboardJSON -UseBasicParsing -ErrorAction Stop
+        return $response.statusCode
+    }
+    catch [System.Net.WebException] {
+        $errorResponse = $_ | ConvertFrom-Json
+        ## MVP for Error output
+        write-host "Error attempting to import: $($errorResponse.error.code)"
+        write-host "Message: $($_)" -ForegroundColor Red
+        exit
+    }
+}
+
 # collect the source dashboard's structure
 $source = export-Dashboard $sourceEnvironment $sourceToken $sourceDashboardID
 
@@ -281,10 +300,16 @@ if ($script:destinationReportName) {
     $source.dashboardMetadata.name = $script:destinationReportName
 }
 
+# Removal of ID and Owner is necessary to ensure 
+$source.PSObject.properties.remove('id')
+$source.dashboardMetadata.PSObject.properties.remove('owner')
+
 # Convert the exported PSObject back to JSON
 $json = $source | ConvertTo-Json -Depth 20 -Compress
 
 write-host "Dashboard source is $($json | Measure-Object -Character | Select-Object -ExpandProperty characters) bytes"
+
+$validation = validate-DashboardJSON $script:dtenv $script:token $json
 
 # upload the new dashboard
 $newDashID = import-DashboardJSON $script:dtenv $script:token $json
