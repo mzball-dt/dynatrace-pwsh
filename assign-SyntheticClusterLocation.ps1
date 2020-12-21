@@ -287,7 +287,11 @@ $locTemplate = @"
   "status": "$($deployedStatus)",
   "nodes": [
     "$($syntheticNode.entityID)"
-  ]
+  ],
+  "availabilityLocationOutage": false,
+  "availabilityNodeOutage": false,
+  "availabilityLocationNodeOutageDelayInMinutes": 5,
+  "availabilityNotificationsEnabled": true
 }
 "@
 
