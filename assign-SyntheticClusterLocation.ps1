@@ -12,11 +12,21 @@
 
     !!! Warning !!! The CSV Format is not checked and running with less than specified headers will result in undefined behaviour
 
-    # Requires Updating
+    Changelog: 
+        v2.1
+            Updated confirm-requireTokenPerms to allow check of source environment
+            Removes ID and owner for dashboard
+            Added first iteration of Dashboard validation using built-in API
+            Updated by Adrian Chen
+        v2.0
+            
+        v1.0
+            Initial MVP
+
 
 .NOTES
-    Author: michael.ball
-    Version: 0.1 - 20191206
+    Author: michael.ball adrian.chen
+    Version: 2.1 - 20191206
     Requirement: Powershell v5.0
 #>
 
@@ -135,6 +145,7 @@ $locTemplate = @"
   "city": "$($locData.DynatraceCityCode)",
   "latitude": $($locData.CENTRE_LATITUDE),
   "longitude": $($locData.CENTRE_LONGITUDE),
+  "status": "ENABLED",
   "nodes": [
     "$($syntheticNode.entityID)"
   ]
