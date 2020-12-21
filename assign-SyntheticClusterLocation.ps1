@@ -14,19 +14,22 @@
 
     Changelog: 
         v2.1
-            Updated confirm-requireTokenPerms to allow check of source environment
-            Removes ID and owner for dashboard
-            Added first iteration of Dashboard validation using built-in API
+            Added scriptmode switch to enable integration with other scripts/workflows
+            Updated API payload to include status
             Updated by Adrian Chen
         v2.0
-            
+            Updated variable name mismatch
+            Updated by Adrian Chen
         v1.0
-            Initial MVP
+            Initial MVP by Michael Ball
 
+
+    Examples: 
+        ::TODO::
 
 .NOTES
     Author: michael.ball adrian.chen
-    Version: 2.1 - 20191206
+    Version: 2.1 - 20201221
     Requirement: Powershell v5.0
 #>
 
@@ -42,7 +45,11 @@ PARAM (
     # CSV File containing the location data for the location environment
     [String] $geoLocationsCSV = './geoLocations.csv',
     # use this switch to tell powershell to ignore ssl concerns
-    [switch] $nocheckcertificate
+    [switch] $nocheckcertificate,
+    # use this switch to be interaction less 
+    [switch] $scriptmode,
+    # use this switch to be push a location without enabling it
+    [switch] $disabled
 )
 
 if ($nocheckcertificate) {
@@ -128,13 +135,17 @@ $locData = $getcsv | Where-Object -Property 'Name' -EQ -Value $locationName
 $locData | Format-Table
 
 write-host "Tie site '$($locData.name)' with $($syntheticNode.hostname)"
-$ans = read-host "y/n [y]"
-if ($ans -ne 'y' -and $ans -ne '') {
-    write-host "Exiting script with no changes" -ForegroundColor DarkMagenta
-    return
+if (!$scriptmode) {
+    $ans = read-host "y/n [y]"
+    if ($ans -ne 'y' -and $ans -ne '') {
+        write-host "Exiting script with no changes" -ForegroundColor DarkMagenta
+        return
+    }
 }
 
 Write-host "Continuing with synthetic node assignment" -ForegroundColor green
+
+$deployedStatus = If ($disabled) {"DISABLED"} Else {"ENABLED"}
 
 $locTemplate = @"
 {
@@ -145,7 +156,7 @@ $locTemplate = @"
   "city": "$($locData.DynatraceCityCode)",
   "latitude": $($locData.CENTRE_LATITUDE),
   "longitude": $($locData.CENTRE_LONGITUDE),
-  "status": "ENABLED",
+  "status": "$($deployedStatus)",
   "nodes": [
     "$($syntheticNode.entityID)"
   ]
