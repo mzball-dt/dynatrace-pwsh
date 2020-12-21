@@ -168,5 +168,5 @@ $locTemplate
 $res = Invoke-RestMethod -Method POST -Uri "$cluster/api/cluster/v1/synthetic/locations" -Headers $headers -Body $locTemplate
 
 If ($res.entityID) {
-    Write-host "Successful Location up" -ForegroundColor Green
+    Write-host "Successful. Node [$($syntheticNode.entityID)] assigned to [$locationName] in [$deployedStatus] state." -ForegroundColor Green
 }
