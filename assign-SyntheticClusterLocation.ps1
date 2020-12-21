@@ -198,19 +198,36 @@ $headers = @{
     Authorization  = "Api-Token $clusterToken"
     "Content-Type" = "application/json"
 }
+
+## Get Synthetic Nodes 
 $res = Invoke-RestMethod -Method GET -Headers $headers -Uri "$dtcluster/api/cluster/v2/synthetic/nodes"
 $nodes = $res.nodes
 
+if (!$nodes -or $nodes.count -eq 0) {
+    write-Warning "No synthetic nodes available."
+    return
+}
+
+## Get Synthetic Locations
+$res = Invoke-RestMethod -Method GET -Headers $headers -Uri "$dtcluster/api/cluster/v2/synthetic/locations"
+
+## Check locations for the node
+if ($res.count -ne 0) {
+    $locations = $res.locations
+    foreach ($location in $locations) { 
+        $res = Invoke-RestMethod -Method GET -Headers $headers -Uri "$dtcluster/api/cluster/v2/synthetic/locations/$($location.entityId)" 
+        ## Remove Nodes with assigned to a location
+        if ($res.nodes.count -ne 0) { $res.nodes | ForEach-Object { $nodes = Where-Object { $nodes.entityId -ne $_ } } }
+    }
+}
+
+## Return when all node are already assigned
 if (!$nodes -or $nodes.count -eq 0) {
     write-Warning "No nodes available for assignment"
     return
 }
 
-$nodes | ForEach-Object { $_ | Add-Member -MemberType NoteProperty -Name hasLocation -Value $false }
-
 if (!$syntheticNode) {
-    $res = Invoke-RestMethod -Method GET -Headers $headers -Uri "$dtcluster/api/cluster/v2/synthetic/locations"
-
     # List nodes without locations
     #$nodes = $nodes | Where-Object -Property haslocation -eq -Value $false | Sort-Object -Property hostname
     $nodes = $nodes | ForEach-Object { $i = 0 } { $_ | Add-Member -MemberType NoteProperty -Name ID -Value ($i++); $_ }
