@@ -15,6 +15,7 @@
     Changelog: 
         v2.1
             Added scriptmode switch to enable integration with other scripts/workflows
+            Updated API version to v2 - 1.204
             Updated API payload to include status
             Updated by Adrian Chen
         v2.0
@@ -33,27 +34,77 @@
     Requirement: Powershell v5.0
 #>
 
+<###########################
+# Start of scaffold block #
+###########################>
+
 PARAM (
     # The Cluster to query and update
-    [Parameter(Mandatory = $true)]$cluster,
+    [Parameter()][ValidateNotNullOrEmpty()] $dtcluster = $env:dtcluster,
     # Token with serviceProviderAPI access to 
-    [Parameter(Mandatory = $true)]$clustertoken,
+    [Alias('dtclustertoken')][ValidateNotNullOrEmpty()][string] $clustertoken = $env:dtclustertoken,
+
+    <##################################
+    # Start of Script-specific params #
+    ##################################>
+
     # elementID of the Synthetic node to assign to a location
     [switch] $syntheticNode,
     # Name of Location to create and assign the Node too
     [string] $locationName,
     # CSV File containing the location data for the location environment
     [String] $geoLocationsCSV = './geoLocations.csv',
-    # use this switch to tell powershell to ignore ssl concerns
-    [switch] $nocheckcertificate,
     # use this switch to be interaction less 
     [switch] $scriptmode,
     # use this switch to be push a location without enabling it
-    [switch] $disabled
+    [switch] $disabled,
+
+    <#################################
+    # Stop of Script-specific params #
+    #################################>
+
+    # Prints Help output
+    [Alias('h')][switch] $help,
+    # use this switch to tell this script to not check token or cluster viability
+    [switch] $noCheckCompatibility,
+    # use this switch to tell powershell to ignore ssl concerns
+    [switch] $noCheckCertificate,
+
+    # DO NOT USE - This is set by Script Author
+    [String[]]$script:tokenPermissionRequirements = @('ServiceProviderAPI')
 )
 
-if ($nocheckcertificate) {
+# Help flag checks
+if ($h -or $help) {
+    Get-Help $script:MyInvocation.MyCommand.Path -Detailed
+    exit 0
+}
 
+# Ensure that dtenv and token are both populated
+if (!$script:dtcluster) {
+    return Write-Error "dtcluster was not populated - unable to continue"
+}
+elseif (!$script:clustertoken) {
+    return Write-Error "clustertoken/dtclustertoken was not populated - unable to continue"
+}
+
+# Try to 'fix' a missing https:// in the env
+if ($script:dtcluster -notlike "https://*" -and $script:dtcluster -notlike "http://*") {
+    Write-Host -ForegroundColor DarkYellow -Object "WARN: Environment URI was missing 'httpx://' prefix"
+    $script:dtcluster = "https://$script:dtcluster"
+    Write-host -ForegroundColor Cyan "New environment URL: $script:dtcluster"
+}
+
+# Try to 'fix' a trailing '/'
+if ($script:dtcluster[$script:dtcluster.Length - 1] -eq '/') { 
+    $script:dtcluster = $script:dtcluster.Substring(0, $script:dtcluster.Length - 1) 
+    write-host -ForegroundColor DarkYellow -Object "WARNING: Removed trailing '/' from dtenv input"
+}
+
+$baseURL = "$script:dtcluster/api/cluster/v1"
+
+# Setup Network settings to work from less new setups
+if ($nocheckcertificate) {
     # SSL and other compatability settings
     function Disable-SslVerification {
         if (-not ([System.Management.Automation.PSTypeName]"TrustEverything").Type) {
@@ -65,8 +116,7 @@ public static class TrustEverything
     private static bool ValidationCallback(object sender, X509Certificate certificate, X509Chain chain,
     SslPolicyErrors sslPolicyErrors) { return true; }
     public static void SetCallback() { System.Net.ServicePointManager.ServerCertificateValidationCallback = ValidationCallback; }
-    public static void UnsetCallback() { System.Net.ServicePointManager.ServerCertificateValidationCallback = null; }
-}
+    public static void UnsetCallback() { System.Net.ServicePointManager.ServerCertificateValidationCallback = null; } } 
 "@
         }
         [TrustEverything]::SetCallback()
@@ -76,9 +126,70 @@ public static class TrustEverything
             [TrustEverything]::UnsetCallback()
         }
     }
-    Disable-SslVerification
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocoltype]::Tls12
+    Disable-SslVerification   
 }
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocoltype]::Tls12 
+
+# Construct the headers for this API request 
+$headers = @{
+    Authorization  = "Api-Token $script:clustertoken";
+    Accept         = "application/json; charset=utf-8";
+    "Content-Type" = "application/json; charset=utf-8"
+}
+
+function confirm-supportedClusterVersion ($minimumVersion = 204, $logmsg = '') {
+    # Environment version check - cancel out if too old 
+    $uri = "$script:dtcluster/api/v1.0/onpremise/cluster"
+    Write-Host -ForegroundColor cyan -Object "Cluster Version Check$logmsg`: GET $uri"
+    $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri 
+    $envVersion = $res[0].buildVersion -split '\.'
+    if ($envVersion -and ([int]$envVersion[0]) -ne 1 -and ([int]$envVersion[1]) -lt $minimumVersion) {
+        write-host "Failed Environment version check - Expected: > 1.176 - Got: $($res.version)"
+        exit
+    }
+}
+
+function confirm-requiredTokenPerms ($token, $requirePerms, $logmsg = '') {
+    # Token has required Perms Check - cancel out if it doesn't have what's required
+    $uri = "$baseURL/tokens/lookup"
+    Write-Host -ForegroundColor cyan -Object "Token Permissions Check$logmsg`: POST $uri"
+    $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:clustertoken`"}"
+    if (($requirePerms | Where-Object { $_ -notin $res.scopes }).count) {
+        write-host "Failed Token Permission check. Token requires: $($requirePerms -join ',')"
+        write-host "Token provided only had: $($res.scopes -join ',')"
+        exit
+    }
+}
+
+if (!$noCheckCompatibility) {
+    <#
+        Determine what type environment we have? This script will only work on tenants 
+        
+        SaaS tenant = https://*.live.dynatrace.com
+        Managed tenant = https://*/e/UUID
+        Managed Cluster = https://*
+    #>
+    $envType = 'cluster'
+    if ($script:dtcluster -like "*.live.dynatrace.com") {
+        $envType = 'env'
+    }
+    elseif ($script:dtcluster -like "http*://*/e/*") {
+        $envType = 'env'
+    }
+
+    # Script won't work on a tenant
+    if ($envType -ne 'cluster') {
+        write-error "'$script:dtcluster' looks like an invalid URL (only Clusters are supported by this script)"
+        return
+    }
+    
+    confirm-supportedClusterVersion 184
+    confirm-requiredTokenPerms $script:clustertoken $script:tokenPermissionRequirements
+}
+
+<#########################
+# Stop of scaffold block #
+#########################>
     
 # List available unassigned Synthetic nodes
     
@@ -87,7 +198,7 @@ $headers = @{
     Authorization  = "Api-Token $clusterToken"
     "Content-Type" = "application/json"
 }
-$res = Invoke-RestMethod -Method GET -Headers $headers -Uri "$cluster/api/cluster/v1/synthetic/nodes"
+$res = Invoke-RestMethod -Method GET -Headers $headers -Uri "$dtcluster/api/cluster/v2/synthetic/nodes"
 $nodes = $res.nodes
 
 if (!$nodes -or $nodes.count -eq 0) {
@@ -98,7 +209,7 @@ if (!$nodes -or $nodes.count -eq 0) {
 $nodes | ForEach-Object { $_ | Add-Member -MemberType NoteProperty -Name hasLocation -Value $false }
 
 if (!$syntheticNode) {
-    $res = Invoke-RestMethod -Method GET -Headers $headers -Uri "$cluster/api/cluster/v1/synthetic/locations"
+    $res = Invoke-RestMethod -Method GET -Headers $headers -Uri "$dtcluster/api/cluster/v2/synthetic/locations"
 
     # List nodes without locations
     #$nodes = $nodes | Where-Object -Property haslocation -eq -Value $false | Sort-Object -Property hostname
@@ -145,7 +256,7 @@ if (!$scriptmode) {
 
 Write-host "Continuing with synthetic node assignment" -ForegroundColor green
 
-$deployedStatus = If ($disabled) {"DISABLED"} Else {"ENABLED"}
+$deployedStatus = If ($disabled) { "DISABLED" } Else { "ENABLED" }
 
 $locTemplate = @"
 {
@@ -165,7 +276,7 @@ $locTemplate = @"
 
 $locTemplate
 
-$res = Invoke-RestMethod -Method POST -Uri "$cluster/api/cluster/v1/synthetic/locations" -Headers $headers -Body $locTemplate
+$res = Invoke-RestMethod -Method POST -Uri "$dtcluster/api/cluster/v2/synthetic/locations" -Headers $headers -Body $locTemplate
 
 If ($res.entityID) {
     Write-host "Successful. Node [$($syntheticNode.entityID)] assigned to [$locationName] in [$deployedStatus] state." -ForegroundColor Green
