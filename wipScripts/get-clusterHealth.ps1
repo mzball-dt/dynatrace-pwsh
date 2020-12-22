@@ -195,6 +195,13 @@ function get-apiRequestJson () {
 ## Initialise nodeInfo 
 $nodeInfo = @()
 
+## TODO
+## Initialise message variables to store different messages
+# $msgWarning = New-Object PSObject
+# $msgInfo = New-Object PSObject
+# $msgError = New-Object PSObject
+# $msgSuccess = New-Object PSObject
+
 $checkStartTime = "$(Get-Date -Format "yyyy-MM-dd HH:mm")"
 
 ## Redefine baseURL
@@ -219,9 +226,6 @@ if ($nodelist -ne $false) {
         $_currentNode = New-Object PSObject
     
         ## Set node details
-        ## TODO
-        ## There is a better way of assigning the values, use the other method in next iterations
-
         ## Clone all Properties to form a base
         $node.psobject.properties | ForEach-Object {
             $_currentNode | Add-Member -MemberType $_.MemberType -Name $_.Name -Value $_.Value
