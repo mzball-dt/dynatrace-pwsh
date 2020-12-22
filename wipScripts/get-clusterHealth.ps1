@@ -50,7 +50,7 @@ if ($h -or $help) {
     exit 0
 }
 
-# Ensure that dtenv and token are both populated
+# Ensure that dtcluster and token are both populated
 if (!$script:dtcluster) {
     return Write-Error "dtcluster was not populated - unable to continue"
 }
@@ -68,7 +68,7 @@ if ($script:dtcluster -notlike "https://*" -and $script:dtcluster -notlike "http
 # Try to 'fix' a trailing '/'
 if ($script:dtcluster[$script:dtcluster.Length - 1] -eq '/') { 
     $script:dtcluster = $script:dtcluster.Substring(0, $script:dtcluster.Length - 1) 
-    write-host -ForegroundColor DarkYellow -Object "WARNING: Removed trailing '/' from dtenv input"
+    write-host -ForegroundColor DarkYellow -Object "WARNING: Removed trailing '/' from dtcluster input"
 }
 
 $baseURL = "$script:dtcluster/api/cluster/v1"
