@@ -1,6 +1,6 @@
 <#
     .Synopsis
-        A Basic Health Check script to quickly identify cluster / synthetic cluster activeGate issues
+        A Basic Health Check script to quickly identify cluster / activeGate issues
     .Description
         This script forms the basis (scaffold) for scripts to perform API calls
     .Notes
@@ -14,22 +14,20 @@
         <PLACEHOLDER> - insert sample usage here
 #>
 
-<#
-###########################
+
+<###########################
 # Start of scaffold block #
-###########################
-#>
+###########################>
+
 PARAM (
-    # The cluster or tenant the HU report should be fetched from
+    # The cluster or tenant the Dasboard will be placed in
     [Parameter()][ValidateNotNullOrEmpty()] $dtcluster = $env:dtcluster,
-    # Token must have Smartscape Read access for a tenant
+    # Token for the destination tenant w/ DataExport and WriteConfig perms
     [Alias('dtclustertoken')][ValidateNotNullOrEmpty()][string] $clustertoken = $env:dtclustertoken,
 
     <##################################
     # Start of Script-specific params #
     ##################################>
-
-
 
     <#################################
     # Stop of Script-specific params #
@@ -43,7 +41,7 @@ PARAM (
     [switch] $noCheckCertificate,
 
     # DO NOT USE - This is set by Script Author
-    [String[]]$script:tokenPermissionRequirements = @('DataExport')
+    [String[]]$script:tokenPermissionRequirements = @('ServiceProviderAPI')
 )
 
 # Help flag checks
@@ -52,12 +50,12 @@ if ($h -or $help) {
     exit 0
 }
 
-# Ensure that dtcluster and token are both populated
+# Ensure that dtenv and token are both populated
 if (!$script:dtcluster) {
-    return Write-Error "Cluster URL was not populated - unable to continue"
+    return Write-Error "dtcluster was not populated - unable to continue"
 }
-elseif (!$script:token) {
-    return Write-Error "token/dttoken was not populated - unable to continue"
+elseif (!$script:clustertoken) {
+    return Write-Error "clustertoken/dtclustertoken was not populated - unable to continue"
 }
 
 # Try to 'fix' a missing https:// in the env
@@ -70,10 +68,10 @@ if ($script:dtcluster -notlike "https://*" -and $script:dtcluster -notlike "http
 # Try to 'fix' a trailing '/'
 if ($script:dtcluster[$script:dtcluster.Length - 1] -eq '/') { 
     $script:dtcluster = $script:dtcluster.Substring(0, $script:dtcluster.Length - 1) 
-    write-host -ForegroundColor DarkYellow -Object "WARNING: Removed trailing '/' from dtcluster input"
+    write-host -ForegroundColor DarkYellow -Object "WARNING: Removed trailing '/' from dtenv input"
 }
 
-$baseURL = "$script:dtcluster/api/v1"
+$baseURL = "$script:dtcluster/api/cluster/v1"
 
 # Setup Network settings to work from less new setups
 if ($nocheckcertificate) {
@@ -100,42 +98,35 @@ public static class TrustEverything
     }
     Disable-SslVerification   
 }
-
-## Sets TLS to 1.2
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocoltype]::Tls12 
 
 # Construct the headers for this API request 
 $headers = @{
-    Authorization  = "Api-Token $script:token";
+    Authorization  = "Api-Token $script:clustertoken";
     Accept         = "application/json; charset=utf-8";
     "Content-Type" = "application/json; charset=utf-8"
 }
 
-function confirm-supportedClusterVersion ($minimumVersion = 176, $logmsg = '') {
+function confirm-supportedClusterVersion ($minimumVersion = 194, $logmsg = '') {
     # Environment version check - cancel out if too old 
-    $uri = "$baseURL/config/clusterversion"
+    $uri = "$script:dtcluster/api/v1.0/onpremise/cluster"
     Write-Host -ForegroundColor cyan -Object "Cluster Version Check$logmsg`: GET $uri"
     $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri 
-    $envVersion = $res.version -split '\.'
-    if ($envVersion -and (([int]$envVersion[0]) -ne 1 -or ([int]$envVersion[1]) -lt $minimumVersion)) {
-        Write-Error "Failed Environment version check - Expected: > 1.$minimumVersion - Got: $($res.version)"
+    $envVersion = $res[0].buildVersion -split '\.'
+    if ($envVersion -and ([int]$envVersion[0]) -ne 1 -and ([int]$envVersion[1]) -lt $minimumVersion) {
+        write-host "Failed Environment version check - Expected: > 1.176 - Got: $($res.version)"
         exit
     }
 }
 
-function confirm-requiredTokenPerms ($clustertoken, $requirePerms, $logmsg = '') {
+function confirm-requiredTokenPerms ($token, $requirePerms, $logmsg = '') {
     # Token has required Perms Check - cancel out if it doesn't have what's required
     $uri = "$baseURL/tokens/lookup"
-    $headers = @{
-        Authorization  = "Api-Token $clustertoken";
-        Accept         = "application/json; charset=utf-8";
-        "Content-Type" = "application/json; charset=utf-8"
-    }
     Write-Host -ForegroundColor cyan -Object "Token Permissions Check$logmsg`: POST $uri"
-    $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$clustertoken`"}"
+    $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:clustertoken`"}"
     if (($requirePerms | Where-Object { $_ -notin $res.scopes }).count) {
-        Write-Error "Failed Token Permission check. Token requires: $($requirePerms -join ', ')"
-        write-host "Token provided only had: $($res.scopes -join ', ')"
+        write-host "Failed Token Permission check. Token requires: $($requirePerms -join ',')"
+        write-host "Token provided only had: $($res.scopes -join ',')"
         exit
     }
 }
@@ -156,36 +147,73 @@ if (!$noCheckCompatibility) {
         $envType = 'env'
     }
 
-    # Script won't work on a cluster
-    if ($envType -eq 'env') {
-        write-error "'$script:dtcluster' looks like an invalid URL or environment url"
-        exit
+    # Script won't work on a tenant
+    if ($envType -ne 'cluster') {
+        write-error "'$script:dtcluster' looks like an invalid URL (only Clusters are supported by this script)"
+        return
     }
     
-    # check that other requirements are met
-    confirm-supportedClusterVersion 192
-    confirm-requiredTokenPerms $script:token $script:tokenPermissionRequirements
+    confirm-supportedClusterVersion 184
+    confirm-requiredTokenPerms $script:clustertoken $script:tokenPermissionRequirements
 }
 
-function convertTo-jsDate($date) {
-    return [Math]::Floor(1000 * (Get-Date ($date) -UFormat %s))
-}
+<#########################
+# Stop of scaffold block #
+#########################>
 
-## Cluster API could be api/v1.0 or api/cluster/v2
-
-$baseURL = "$script:dtcluster/api/"
-
-<#
-###########################
-# End of scaffold block #
-###########################
-#>
+## Redefine
+## Shorten baseURL as a mix of v1 and v2 are used 
+$baseURL = "$script:dtcluster/api"
 
 ## Retrieve cluster node information
-/api/v1.0/onpremise/cluster/configuration
+$res = Invoke-webRequest -uri "$baseURL/v1.0/onpremise/cluster/configuration" -Headers $headers
 
-## Cluster Node Status Check
-<NODE_DIRECT_CNAME_OR_IP>/api/v1.0/onpremise/nodeManagement/nodeServerStatus
+$nodeList
+
+## Get firewall rules 
+## Mismatch would indicate a node is blocked
+$res = Invoke-webRequest -uri "$baseURL/v1.0/onpremise/firewallManagement/clusterNodes" -Headers $headers
+$res
+## Cluster Node Status Check 
+## Also find out which node is the master definitively
+$res = Invoke-webRequest -uri "<NODE_DIRECT_CNAME_OR_IP>/api/v1.0/onpremise/nodeManagement/nodeServerStatus" -Headers $headers
+$res
+$nodeHealth
 
 ## Synthetics Nodes (Synthetic enabled Cluster ActiveGates' health)
-/api/cluster/v2/synthetic/nodes
+$res = Invoke-webRequest -uri "$baseURL/cluster/v2/synthetic/nodes" -Headers $headers
+$res
+
+$activeGate
+
+## Cluster ActiveGates' health - Not Offline = Healthy
+$res = Invoke-webRequest -uri "$baseURL/cluster/v2/activeGates" -Headers $headers
+$res
+
+## AG Port Check
+try {
+    if ((Get-Command Test-NetConnection).count -ne 0) {
+        ## Use test net connections
+    }
+}
+catch {
+    ## Old OS without test-netconnection Only 
+    $tcpClient = New-Object System.Net.Sockets.tcpClient
+
+    $testConnection = $tcpClient.ConnectAsync($Computername, $Port)
+
+    if ($testConnection.IsFaulted -eq $true) {
+
+        $issues = $testConnection.Exception.InnerException
+  
+        Write-Warning  $issues
+  
+    }
+    $tcpClient.Dispose() 
+   
+}
+## TODO 
+## License Consumption Heads up
+
+## TODO 
+## Leverage existing self-mon if present
