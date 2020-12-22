@@ -30,7 +30,7 @@ PARAM (
     ##################################>
 
     # use this swtich to tell the script to provide additional output from requests
-    [switch] $debug,
+    [switch] $debugOn,
 
     <#################################
     # Stop of Script-specific params #
@@ -210,7 +210,7 @@ Write-host "`n"
 Write-host "[Info]: Retrieving current cluster configuration information."
 $nodelist = get-apiRequestJson -uri "$baseURL/v1.0/onpremise/cluster/configuration" -Headers $headers
 
-if ($debug) { $nodelist.clusterNodes | Format-List }
+if ($debugOn) { $nodelist.clusterNodes | Format-List }
 
 if ($nodelist -ne $false) {
 
@@ -221,12 +221,11 @@ if ($nodelist -ne $false) {
         ## Set node details
         ## TODO
         ## There is a better way of assigning the values, use the other method in next iterations
-        $_currentNode | Add-Member -MemberType NoteProperty -Name "webUI" -Value $node.webUI
-        $_currentNode | Add-Member -MemberType NoteProperty -Name "agent" -Value $node.agent
-        $_currentNode | Add-Member -MemberType NoteProperty -Name "datacenter" -Value $node.datacenter
-        $_currentNode | Add-Member -MemberType NoteProperty -Name "kubernetesRole" -Value $node.kubernetesRole
-        $_currentNode | Add-Member -MemberType NoteProperty -Name "Id" -Value $node.Id
-        $_currentNode | Add-Member -MemberType NoteProperty -Name "ipAddress" -Value $node.ipAddress
+
+        ## Clone all Properties to form a base
+        $node.psobject.properties | ForEach-Object {
+            $_currentNode | Add-Member -MemberType $_.MemberType -Name $_.Name -Value $_.Value
+        }
 
         ## Cluster Node Status Check 
         ## Also find out which node is the master definitively
@@ -245,10 +244,10 @@ if ($nodelist -ne $false) {
             Write-host "[Warning]: Failed to retrieve cluster node operation state." -ForegroundColor Yellow
             Write-host "`t Node : [$($node.Id)] with IP [$($node.ipAddress)]"
         }
-        if ($debug) { $_currentNode | Format-List }
+        if ($debugOn) { $_currentNode | Format-List }
         $nodeInfo += $_currentNode
     }
-    if ($debug) { $nodeInfo | Format-List }
+    if ($debugOn) { $nodeInfo | Format-List }
 }
 else {
     Write-host "[Warning]: Failed to retrieve current cluster configuration information." -ForegroundColor Yellow
@@ -284,7 +283,7 @@ $firewallRules = get-apiRequestJson -uri "$baseURL/v1.0/onpremise/firewallManage
 if ($firewallRules -ne $false) {
     ## Checked only if $syntheticNode isn't false
     if (($firewallRules.clusterNodes).count -ne 0) {
-        if ($debug) { $firewallRules.clusterNodes | Format-Table }
+        if ($debugOn) { $firewallRules.clusterNodes | Format-Table }
     }
     ## TODO 
     ## Add Count check based on known correct number of synthAGs
@@ -304,13 +303,13 @@ if ($syntheticNode -ne $false) {
     ## TODO 
     ## Add Count check based on known correct number of synthAGs
     if (($syntheticNode.nodes).count -ne 0) {
-        if ($debug) { $syntheticNode.nodes | Format-List }
+        if ($debugOn) { $syntheticNode.nodes | Format-List }
         foreach ($synthNode in $syntheticNode.nodes) {
             if ($synthNode.healthCheckStatus -ne "Ok") {
                 Write-host "[Status]: CLuster Synthetic ActiveGate has a health check status of [$($synthNode.healthCheckStatus)]." -ForegroundColor White -BackgroundColor Red
                 Write-host "`tDetails: hostname [$($synthNode.hostname)] has a status of [$($synthNode.status)]"
             }
-            if ($debug) { $synthNode | Format-List }
+            if ($debugOn) { $synthNode | Format-List }
         }
     }
 }
@@ -325,13 +324,13 @@ if ($activeGateList -ne $false) {
     ## TODO 
     ## Add Count check based on known correct number of AGs
     if (($activeGateList.activeGates).count -ne 0) {
-        if ($debug) { $activeGateList.activeGates | Format-List }
+        if ($debugOn) { $activeGateList.activeGates | Format-List }
         foreach ($ag in $activeGateList.activeGates) {
             if ($null -ne $ag.offlineSince) {
                 Write-host "[Status]: ActiveGate has been offline since [$($ag.offlineSince)]." -ForegroundColor White -BackgroundColor Red
                 Write-host "`tDetails: hostname [$($ag.hostname)] `n`t`tnetwork addresses [$($ag.networkAddresses)]"
             }
-            if ($debug) { $ag | Format-List }
+            if ($debugOn) { $ag | Format-List }
         }
     }
 }
