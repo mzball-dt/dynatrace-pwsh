@@ -29,6 +29,9 @@ PARAM (
     # Start of Script-specific params #
     ##################################>
 
+    # use this swtich to tell the script to provide additional output from requests
+    [switch] $debug,
+
     <#################################
     # Stop of Script-specific params #
     #################################>
@@ -189,15 +192,25 @@ function get-apiRequestJson () {
     return $res
 }
 
+## Initialise nodeInfo 
 $nodeInfo = @()
+
+$checkStartTime = "$(Get-Date -Format "yyyy-MM-dd HH:mm")"
 
 ## Redefine baseURL
 ## Shorten baseURL as a mix of v1 and v2 are used 
 $baseURL = "$script:dtcluster/api"
 
+Write-host "`n"
+Write-host "[Info]: Starting health check for cluster [$($dtcluster)]."
+Write-host "[Info]: Health Check started at $checkStartTime."
+Write-host "`n"
+
 ## Get Config from current cluster
 Write-host "[Info]: Retrieving current cluster configuration information."
 $nodelist = get-apiRequestJson -uri "$baseURL/v1.0/onpremise/cluster/configuration" -Headers $headers
+
+if ($debug) { $nodelist.clusterNodes | Format-List }
 
 if ($nodelist -ne $false) {
 
@@ -219,18 +232,26 @@ if ($nodelist -ne $false) {
         ## Also find out which node is the master definitively
         $currentNode = $null
         $currentNode = get-apiRequestJson -uri "https://$($node.ipAddress):8021/api/v1.0/onpremise/nodeManagement/nodeServerStatus" -Headers $headers
-        $_currentNode | Add-Member -MemberType NoteProperty -Name "master" -Value $currentNode.master
-        $_currentNode | Add-Member -MemberType NoteProperty -Name "operationState" -Value $currentNode.operationState
+        if ($currentNode -ne $false) {
+            $_currentNode | Add-Member -MemberType NoteProperty -Name "master" -Value $currentNode.master
+            $_currentNode | Add-Member -MemberType NoteProperty -Name "operationState" -Value $currentNode.operationState
+            ## TODO 
+            ## Additional evaluation for a healthy node - webUI = true, agent = true
+            if ($currentNode.operationState -ne "RUNNING") {
+                Write-host "[Status]: Cluster node [$($node.Id)] with IP [$($node.ipAddress)] is in [$($currentNode.operationState)] state." -ForegroundColor White -BackgroundColor Red
+            }
+        }
+        else {
+            Write-host "[Warning]: Failed to retrieve cluster node operation state." -ForegroundColor Yellow
+            Write-host "`t Node : [$($node.Id)] with IP [$($node.ipAddress)]"
+        }
+        if ($debug) { $_currentNode | Format-List }
         $nodeInfo += $_currentNode
     }
-    ## Test only Output 
-    $nodeInfo | Format-Table
-    ## TODO 
-    ## Evaluation for a healthy node - webUI = true, agent = true, operationState = running
+    if ($debug) { $nodeInfo | Format-List }
 }
 else {
-    Write-host "[Error]: Failed to retrieve current cluster configuration information."
-    Write-host "`t Cluster : $($dtcluster)"
+    Write-host "[Warning]: Failed to retrieve current cluster configuration information." -ForegroundColor Yellow
 }
 
 ## Get ES Health
@@ -239,8 +260,7 @@ $elasticHealth = get-apiRequestJson -uri "$baseURL/v1.0/onpremise/elastic/upgrad
 
 if ($elasticHealth -ne $false) {
     ## Checked only if $elasticHealth isn't false
-    if ($elasticHealth.upgradePossible -ne $true)
-    {
+    if ($elasticHealth.upgradePossible -ne $true) {
         Write-host "[Status]: Elastic Cluster is unhealth." -ForegroundColor White -BackgroundColor Red
         Write-host "`tReason: $($elasticHealth.reason)" -ForegroundColor White -BackgroundColor Red
     }
@@ -252,40 +272,71 @@ if ($elasticHealth -ne $false) {
     ## TODO 
     ## Verify whether result is ever different when performed on nodes directly
 }
+else {
+    Write-host "[Warning]: Failed to retrieve elastic cluster status." -ForegroundColor Yellow
+}
 
 ## Get firewall rules 
 ## Mismatch would indicate a node is blocked
 Write-host "[Info]: Retrieving current cluster firewall rules."
 $firewallRules = get-apiRequestJson -uri "$baseURL/v1.0/onpremise/firewallManagement/clusterNodes" -Headers $headers
 
-$firewallRules | Format-Table
-
-## Synthetics Nodes (Synthetic enabled Cluster ActiveGates' health)
-$syntheticNode = $null
-$syntheticNode = get-apiRequestJson -uri "$baseURL/cluster/v2/synthetic/nodes" -Headers $headers 
-
-if ($syntheticNode -ne $false) {
+if ($firewallRules -ne $false) {
     ## Checked only if $syntheticNode isn't false
-    if (($syntheticNode.nodes).count -ne 0) {
-        $syntheticNode.nodes | Format-Table
+    if (($firewallRules.clusterNodes).count -ne 0) {
+        if ($debug) { $firewallRules.clusterNodes | Format-Table }
     }
     ## TODO 
     ## Add Count check based on known correct number of synthAGs
 }
+else {
+    Write-host "[Warning]: Failed to retrieve cluster firewall rules." -ForegroundColor Yellow
+}
+
+## Synthetics Nodes (Synthetic enabled Cluster ActiveGates' health)
+Write-host "[Info]: Retrieving cluster synthetic ActiveGate status."
+$syntheticNode = $null
+$syntheticNode = get-apiRequestJson -uri "$baseURL/cluster/v2/synthetic/nodes" -Headers $headers 
+
+if ($syntheticNode -ne $false) {
+
+    ## Checked only if $syntheticNode isn't false
+    ## TODO 
+    ## Add Count check based on known correct number of synthAGs
+    if (($syntheticNode.nodes).count -ne 0) {
+        if ($debug) { $syntheticNode.nodes | Format-List }
+        foreach ($synthNode in $syntheticNode.nodes) {
+            if ($synthNode.healthCheckStatus -ne "Ok") {
+                Write-host "[Status]: CLuster Synthetic ActiveGate has a health check status of [$($synthNode.healthCheckStatus)]." -ForegroundColor White -BackgroundColor Red
+                Write-host "`tDetails: hostname [$($synthNode.hostname)] has a status of [$($synthNode.status)]"
+            }
+            if ($debug) { $synthNode | Format-List }
+        }
+    }
+}
 
 ## Cluster ActiveGates' health - Not Offline = Healthy
-$activeGate = $null
-$activeGate = get-apiRequestJson -uri "$baseURL/cluster/v2/activeGates" -Headers $headers 
+Write-host "[Info]: Retrieving cluster ActiveGate status."
+$activeGateList = $null
+$activeGateList = get-apiRequestJson -uri "$baseURL/cluster/v2/activeGates" -Headers $headers 
 
-if ($activeGate -ne $false) {
-    ## Checked only if $activeGate isn't false
-    if (($activeGate.nodes).count -ne 0) {
-        $activeGate.nodes | Format-Table       
-    }
+if ($activeGateList -ne $false) {
+    ## Checked only if $activeGateList isn't false
     ## TODO 
     ## Add Count check based on known correct number of AGs
+    if (($activeGateList.activeGates).count -ne 0) {
+        if ($debug) { $activeGateList.activeGates | Format-List }
+        foreach ($ag in $activeGateList.activeGates) {
+            if ($null -ne $ag.offlineSince) {
+                Write-host "[Status]: ActiveGate has been offline since [$($ag.offlineSince)]." -ForegroundColor White -BackgroundColor Red
+                Write-host "`tDetails: hostname [$($ag.hostname)] `n`t`tnetwork addresses [$($ag.networkAddresses)]"
+            }
+            if ($debug) { $ag | Format-List }
+        }
+    }
 }
-## AG Port Check
+## Cluster AG Port Check
+## Do this Asyn to reduce time
 try {
     if ((Get-Command Test-NetConnection).count -ne 0) {
         ## Use test net connections
@@ -309,6 +360,9 @@ catch {
 }
 ## TODO 
 ## License Consumption Heads up
+
+## TODO 
+## Leverage existing self-mon if present
 
 ## TODO 
 ## Leverage existing self-mon if present
