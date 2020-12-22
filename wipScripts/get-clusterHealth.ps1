@@ -161,7 +161,33 @@ if (!$noCheckCompatibility) {
 # Stop of scaffold block #
 #########################>
 
-$sslErrorMsg = "Could not establish trust relationship"
+function get-apiRequestJson () {
+    param (
+        [Parameter(Mandatory)][string]$uri,
+        [PSObject]$Headers
+    )
+
+    $sslErrorMsg = "Could not establish trust relationship"
+
+    try {
+        $res = $null
+        $res = Invoke-RestMethod -uri $uri -Headers $Headers -ErrorAction Continue
+    }
+    catch {
+        ## Provide suggestion for SSL errors
+        if ($_ -ilike "*$sslErrorMsg*") {
+            Write-Host "[Error]: SSL Error, try re-run the script with -nocheckcertificate." -ForegroundColor Red
+            Write-Host "`tOnly -nocheckcertificate for trust sources." -ForegroundColor Red
+            Write-Host "`tDetails: $($_.Exception)"
+        }
+        else {
+            Write-Host "Error: $_" -ForegroundColor Red
+        }
+        ## Return $false if catch is triggered for easy issue evaluation
+        return $false
+    }
+    return $res
+}
 
 $nodeInfo = @()
 
@@ -170,117 +196,95 @@ $nodeInfo = @()
 $baseURL = "$script:dtcluster/api"
 
 ## Get Config from current cluster
-
 Write-host "[Info]: Retrieving current cluster configuration information."
+$nodelist = get-apiRequestJson -uri "$baseURL/v1.0/onpremise/cluster/configuration" -Headers $headers
 
-try {
-    $res = Invoke-RestMethod -uri "$baseURL/v1.0/onpremise/cluster/configuration" -Headers $headers -ErrorAction Continue
+if ($nodelist -ne $false) {
+
+    ## Get the state of each node from the node
+    foreach ($node in $nodelist.clusterNodes) {
+        $_currentNode = New-Object PSObject
+    
+        ## Set node details
+        ## TODO
+        ## There is a better way of assigning the values, use the other method in next iterations
+        $_currentNode | Add-Member -MemberType NoteProperty -Name "webUI" -Value $node.webUI
+        $_currentNode | Add-Member -MemberType NoteProperty -Name "agent" -Value $node.agent
+        $_currentNode | Add-Member -MemberType NoteProperty -Name "datacenter" -Value $node.datacenter
+        $_currentNode | Add-Member -MemberType NoteProperty -Name "kubernetesRole" -Value $node.kubernetesRole
+        $_currentNode | Add-Member -MemberType NoteProperty -Name "Id" -Value $node.Id
+        $_currentNode | Add-Member -MemberType NoteProperty -Name "ipAddress" -Value $node.ipAddress
+
+        ## Cluster Node Status Check 
+        ## Also find out which node is the master definitively
+        $currentNode = $null
+        $currentNode = get-apiRequestJson -uri "https://$($node.ipAddress):8021/api/v1.0/onpremise/nodeManagement/nodeServerStatus" -Headers $headers
+        $_currentNode | Add-Member -MemberType NoteProperty -Name "master" -Value $currentNode.master
+        $_currentNode | Add-Member -MemberType NoteProperty -Name "operationState" -Value $currentNode.operationState
+        $nodeInfo += $_currentNode
+    }
+    ## Test only Output 
+    $nodeInfo | Format-Table
+    ## TODO 
+    ## Evaluation for a healthy node - webUI = true, agent = true, operationState = running
 }
-catch {
-    if ($_ -ilike "*$sslErrorMsg*") {
-        Write-Host "Error: SSL Error, try re-run the script with -nocheckcertificate." -ForegroundColor Red
-        Write-Host "Details: $($_.Exception)"
+else {
+    Write-host "[Error]: Failed to retrieve current cluster configuration information."
+    Write-host "`t Cluster : $($dtcluster)"
+}
+
+## Get ES Health
+Write-host "[Info]: Retrieving current cluster elastic health."
+$elasticHealth = get-apiRequestJson -uri "$baseURL/v1.0/onpremise/elastic/upgradeStatus?expectedElasticsearchNodes=-1" -Headers $headers
+
+if ($elasticHealth -ne $false) {
+    ## Checked only if $elasticHealth isn't false
+    if ($elasticHealth.upgradePossible -ne $true)
+    {
+        Write-host "[Status]: Elastic Cluster is unhealth." -ForegroundColor White -BackgroundColor Red
+        Write-host "`tReason: $($elasticHealth.reason)" -ForegroundColor White -BackgroundColor Red
     }
     else {
-        Write-Host "Error: $_" -ForegroundColor Red
-        Write-host "[Error]: Failed to retrieve current cluster configuration information."
-        Write-host "`t Cluster : $($dtcluster)"
+        Write-host "[Status]: Elastic Cluster is health." -ForegroundColor Green
+        ## TODO
+        ## Store the results too. 
     }
+    ## TODO 
+    ## Verify whether result is ever different when performed on nodes directly
 }
-
-## Get the state of each node from the node
-foreach ($node in $res.clusterNodes) {
-    $_currentNode = New-Object PSObject
-    
-    ## Set node details
-
-    ## TODO
-    ## There is a better way of assigning the values, use the other method in next iterations
-    $_currentNode | Add-Member -MemberType NoteProperty -Name "webUI" -Value $node.webUI
-    $_currentNode | Add-Member -MemberType NoteProperty -Name "agent" -Value $node.agent
-    $_currentNode | Add-Member -MemberType NoteProperty -Name "datacenter" -Value $node.datacenter
-    $_currentNode | Add-Member -MemberType NoteProperty -Name "kubernetesRole" -Value $node.kubernetesRole
-    $_currentNode | Add-Member -MemberType NoteProperty -Name "Id" -Value $node.Id
-    $_currentNode | Add-Member -MemberType NoteProperty -Name "ipAddress" -Value $node.ipAddress
-
-    ## Cluster Node Status Check 
-    ## Also find out which node is the master definitively
-    try {
-        $res = $null
-        $res = Invoke-RestMethod -uri "https://$($node.ipAddress):8021/api/v1.0/onpremise/nodeManagement/nodeServerStatus" -Headers $headers
-        $_currentNode | Add-Member -MemberType NoteProperty -Name "master" -Value $res.master
-        $_currentNode | Add-Member -MemberType NoteProperty -Name "operationState" -Value $res.operationState
-    }
-    catch {
-        if ($_ -ilike "*$sslErrorMsg*") {
-            Write-Host "Error: SSL Error, try re-run the script with -nocheckcertificate." -ForegroundColor Red
-            Write-Host "Details: $($_.Exception)"
-        }
-        else {
-            Write-Host "Error: $_" -ForegroundColor Red
-        }
-    }
-    $nodeInfo += $_currentNode
-}
-
-## Test only Output 
-#$nodeInfo | Format-Table
-## TODO 
-## Evaluation for a healthy node - webUI = true, agent = true, operationState = running
 
 ## Get firewall rules 
 ## Mismatch would indicate a node is blocked
-try {
-    $res = $null
-    $res = Invoke-RestMethod -uri "$baseURL/v1.0/onpremise/firewallManagement/clusterNodes" -Headers $headers -ErrorAction Continue
-}
-catch {
-    if ($_ -ilike "*$sslErrorMsg*") {
-        Write-Host "Error: SSL Error, try re-run the script with -nocheckcertificate." -ForegroundColor Red
-        Write-Host "Details: $($_.Exception)"
-    }
-    else {
-        Write-Host "Error: $_" -ForegroundColor Red
-    }
-}
+Write-host "[Info]: Retrieving current cluster firewall rules."
+$firewallRules = get-apiRequestJson -uri "$baseURL/v1.0/onpremise/firewallManagement/clusterNodes" -Headers $headers
 
-$res | Format-Table
+$firewallRules | Format-Table
 
 ## Synthetics Nodes (Synthetic enabled Cluster ActiveGates' health)
-try {
-    $res = $null
-    $res = Invoke-RestMethod -uri "$baseURL/cluster/v2/synthetic/nodes" -Headers $headers -ErrorAction Continue
-}
-catch {
-    if ($_ -ilike "*$sslErrorMsg*") {
-        Write-Host "Error: SSL Error, try re-run the script with -nocheckcertificate." -ForegroundColor Red
-        Write-Host "Details: $($_.Exception)"
-    }
-    else {
-        Write-Host "Error: $_" -ForegroundColor Red
-    }
-}
+$syntheticNode = $null
+$syntheticNode = get-apiRequestJson -uri "$baseURL/cluster/v2/synthetic/nodes" -Headers $headers 
 
-$res | Format-Table
-$activeGate
+if ($syntheticNode -ne $false) {
+    ## Checked only if $syntheticNode isn't false
+    if (($syntheticNode.nodes).count -ne 0) {
+        $syntheticNode.nodes | Format-Table
+    }
+    ## TODO 
+    ## Add Count check based on known correct number of synthAGs
+}
 
 ## Cluster ActiveGates' health - Not Offline = Healthy
-try {
-    $res = $null
-    $res = Invoke-RestMethod -uri "$baseURL/cluster/v2/activeGates" -Headers $headers -ErrorAction Continue
-}
-catch {
-    if ($_ -ilike "*$sslErrorMsg*") {
-        Write-Host "Error: SSL Error, try re-run the script with -nocheckcertificate." -ForegroundColor Red
-        Write-Host "Details: $($_.Exception)"
-    }
-    else {
-        Write-Host "Error: $_" -ForegroundColor Red
-    }
-}
+$activeGate = $null
+$activeGate = get-apiRequestJson -uri "$baseURL/cluster/v2/activeGates" -Headers $headers 
 
-$res | Format-Table
-
+if ($activeGate -ne $false) {
+    ## Checked only if $activeGate isn't false
+    if (($activeGate.nodes).count -ne 0) {
+        $activeGate.nodes | Format-Table       
+    }
+    ## TODO 
+    ## Add Count check based on known correct number of AGs
+}
 ## AG Port Check
 try {
     if ((Get-Command Test-NetConnection).count -ne 0) {
