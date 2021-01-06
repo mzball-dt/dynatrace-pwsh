@@ -28,17 +28,26 @@
 
     This script is currently only proven to work for OpenAPI Spec 3.0.1 - it's assume that 3.x.x will be supported naturally.
 
+    Changelog
+        1.0.0 - 20200106
+            - v1. Works with the spec3.json file as of the release date.
+            - Missing some possibly important APIs due to their complexity. These are found in the ignoreAPIs script param
+    
 .Notes
     Author: Michael.Ball
-    Version: 0.0.1
+    Version: 1.0.0 - 20200106
 
 #>
 
+[cmdletbinding()]
 PARAM(
+    # This script also accepts the directory via the pipe
     [Parameter(ValueFromPipeline = $true)] [String] $inputObject, 
+    # The path to the Dynatrace Configuration API OpenAPI spec3.json file
     [Alias('file', 'filepath')] [String] $path,
 
-    [String[]] $ignoredAPIs = @('plugins/{id}/endpoints', 'plugins/{id}/binary', '/extensions/{id}/instances/{configurationId}', '{applicationId}/keyUserActions', 'userActionAndSessionProperties', 'symfiles/{applicationId}/{packageName}')
+    # Don't edit this. It's mostly used for display
+    [String[]] $ignoredAPIs = @('plugins/{id}/endpoints', 'plugins/{id}/binary', '/extensions/{id}/instances/{configurationId}', '{applicationId}/keyUserActions', 'userActionAndSessionProperties', 'symfiles/{applicationId}/{packageName}', 'extensions/{technology}/availableHosts')
 )
 
 # Don't continue if something fails
@@ -113,29 +122,38 @@ for ($i = 0; $i -lt $apis.length; $i++ ) {
         type = 'simple';
     }
 
-    WRite-host "Processing $($_api.uri)"
+    write-verbose "Processing $($_api.uri)"
 
     $j = $i + 1
     $nextapi = $apis[$j++]
     while ($nextapi -like "$($_api.uri)*") {
-        write-host "`t$nextapi"
+        write-verbose "`t$nextapi"
 
-        if ($nextapi -match "{id}$") {
-            write-host "`t`tset as id_list"
+        if ($nextapi -match "{*}$") {
+            write-verbose "`t`tset as id_list"
             $_api.type = 'id_list'
         }
         elseif ($nextapi -match "{id}/(\w+)$") {
-            write-host "`t`tFound suffix: $($matches.1)"
-            $_api.uriSuffix = if ($_api.uriSuffix) { $_api.uriSuffix + $matches.1 } else { @($matches.1) }
+            write-verbose "`t`tFound suffix: $($matches.1)"
+            $_suffixes = @(); 
+            if ($_api.uriSuffix) { $_suffixes += $_api.uriSuffix }
+            $_suffixes += $matches.1
+            $_api.uriSuffix = $_suffixes
+            Write-Verbose "~~ $($_suffixes -join ', ')"
         }
-
+        else {
+            Write-Verbose "`t`tFound simple, independant child API"
+            $apiMetadata += @{
+                uri  = $nextapi;
+                type = 'simple';
+            }
+        }
         $nextapi = $apis[$j++]
     }
 
     $i = $j - 2
     $apiMetadata += $_api
-    
-    # write-host "-- ($($_api.uri))"
 }
 
-$apiMetadata
+$json = $apiMetadata | Where-Object -Property uri -NotLike -Value '*{id}' | ConvertTo-Json -Depth 10 -Compress
+$json -replace '"', "'" | Set-Clipboard
