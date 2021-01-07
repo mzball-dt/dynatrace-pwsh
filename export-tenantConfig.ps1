@@ -551,7 +551,7 @@ foreach ($api in $selectedApis) {
 				$_uri = "$uri/$($idval.id)"
 				write-host -ForegroundColor cyan "Config Read Request from: $_uri"
 				$idr = Invoke-RestMethod -Method GET -Headers $headers -Uri $_uri
-				$fn = "$($api.uri)/$($idval.id -replace '\.','' -replace '[\?\*\/\\:]','_')" -replace '/', '.'
+				$fn = "$($api.uri)/$($idval.id)" -replace '/', '.'
 				out-json -filename $fn -object $idr
 
 				if ($api.uriSuffix) {

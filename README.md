@@ -22,6 +22,7 @@ All scripts will:
 | get-tenantHostGroupDetail.ps1 |For reporting on all hosts in an environment, particularly for HU consumption by HostGroup<p>Usecases:</p><ul><li>What is the distribution of HU in my environment?</li><li>What is the newest and oldest Agent version running in my environment?</li><li>What Host Groups have the oldest agent version?</li></ul>|
 | get-tenantProblemFeed.ps1|For reporting on all problems in an environment, particularly<p>Usecases:</p><ul><li>What are the problems report for an enviornment in the last X period?</li></ul>|
 | Invoke-USQLRequest.ps1 |Powershell script for saving or viewing USQL queries as PS Tables or CSV files<p>Usecases:</p><ul><li>Extract USQL data from a tenant in a standard format</li></ul> |
+| Export-TenantConfig.ps1 | Powershell script that exports all (or a filterable subset) of the config accessible through the Dynatrace Configuration API<p>Usecases:</p><ul><li>Backing up an in the case of disaster</li><li>Exporting a Tenant's configuration for re-use in another tenant</li><li>Exporting a Tenant's configuration for use with [Dynatrace's Monitoring as Code Tool](https://github.com/dynatrace-oss/dynatrace-monitoring-as-code)</li></ul> |
 
 
 ## Other Scripts
