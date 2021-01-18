@@ -7,12 +7,9 @@
     Uses an existing dashboard or dashboard json export (from file) as a template to create the new dashboards.
     To provide support for links specific to the environment, the string %%ENV%% is replaced with the environment URL.
 
-.NOTES
-    Author: Michael Ball
-    Version: 1.2.0 - 20201112
-    Requirements: Powershell 5+
-
-    Changelog:
+     Changelog:
+        1.2.1 - 20210118
+            Fixed bug where confirm-requiredTokenPerms is run to check a secondary token
         1.2.0 - 20201112
             Merged the different 1.x versions into 1.2.0.
             Fixed bugs with checking the 'goodness' of the source environment's token
@@ -22,6 +19,11 @@
             Fixed a bug that caused a pre-existing dashboard to not be updated
         1.0.0
             MVP
+
+.NOTES
+    Author: Michael Ball
+    Version: 1.2.1 - 20210118
+    Requirements: Powershell 5+   
 #>
 
 <###########################
@@ -147,18 +149,6 @@ function confirm-supportedClusterVersion ($minimumVersion = 176, $logmsg = '') {
     }
 }
 
-function confirm-requireTokenPerms ($token, $requirePerms, $envUrl = $script:dtenv, $logmsg = '') {
-    # Token has required Perms Check - cancel out if it doesn't have what's required
-    $uri = "$envUrl/api/v1/tokens/lookup"
-    Write-Host -ForegroundColor cyan -Object "Token Permissions Check$logmsg`: POST $uri"
-    $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:token`"}"
-    if (($requirePerms | Where-Object { $_ -notin $res.scopes }).count) {
-        write-host "Failed Token Permission check. Token requires: $($requirePerms -join ',')"
-        write-host "Token provided only had: $($res.scopes -join ',')"
-        exit
-    }
-}
-
 function confirm-requiredTokenPerms ($token, $requirePerms, $envUrl = $script:dtenv, $logmsg = '') {
     # Token has required Perms Check - cancel out if it doesn't have what's required
     $uri = "$envUrl/api/v1/tokens/lookup"
@@ -168,7 +158,7 @@ function confirm-requiredTokenPerms ($token, $requirePerms, $envUrl = $script:dt
         "Content-Type" = "application/json; charset=utf-8"
     }
     Write-Host -ForegroundColor cyan -Object "Token Permissions Check$logmsg`: POST $uri"
-    $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:token`"}"
+    $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$token`"}"
     if (($requirePerms | Where-Object { $_ -notin $res.scopes }).count) {
         write-error "Failed Token Permission check. Token requires: $($requirePerms -join ',')"
         write-host "Token provided only had: $($res.scopes -join ',')"
