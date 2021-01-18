@@ -29,7 +29,7 @@ PARAM (
     [switch] $noCheckCertificate,
 
     # DO NOT USE - This is set by Script Author
-    [String[]]$script:tokenPermissionRequirements = @('DataExport', 'ReadAuditLogs')
+    [String[]]$script:tokenPermissionRequirements = @('DataExport', 'auditLogs.read')
 )
 
 # Help flag checks
@@ -73,10 +73,10 @@ using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 public static class TrustEverything
 {
-    private static bool ValidationCallback(object sender, X509Certificate certificate, X509Chain chain,
-    SslPolicyErrors sslPolicyErrors) { return true; }
-    public static void SetCallback() { System.Net.ServicePointManager.ServerCertificateValidationCallback = ValidationCallback; }
-    public static void UnsetCallback() { System.Net.ServicePointManager.ServerCertificateValidationCallback = null; } } 
+		private static bool ValidationCallback(object sender, X509Certificate certificate, X509Chain chain,
+		SslPolicyErrors sslPolicyErrors) { return true; }
+		public static void SetCallback() { System.Net.ServicePointManager.ServerCertificateValidationCallback = ValidationCallback; }
+		public static void UnsetCallback() { System.Net.ServicePointManager.ServerCertificateValidationCallback = null; } } 
 "@
         }
         [TrustEverything]::SetCallback()
@@ -97,14 +97,41 @@ $headers = @{
     "Content-Type" = "application/json; charset=utf-8"
 }
 
+function confirm-supportedClusterVersion ($minimumVersion = 176, $logmsg = '') {
+    # Environment version check - cancel out if too old 
+    $uri = "$baseURL/config/clusterversion"
+    Write-Host -ForegroundColor cyan -Object "Cluster Version Check$logmsg`: GET $uri"
+    $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri
+    $vMaj, $vMinor, $vPatch, $vBuild = $res.version -split '\.'
+    if ($vMaj -eq 1 -and $vMinor -ge $minimumVersion) {
+        # We're Good - version is fine
+    }
+    else {
+        Write-Host -ForegroundColor Red "Failed Environment version check - Expected: > 1.$minimumVersion.x - Got: $($res.version)"
+        exit
+    }
+}
+
+function confirm-requireTokenPerms ($token, $requirePerms, $envUrl = $script:dtenv, $logmsg = '') {
+    # Token has required Perms Check - cancel out if it doesn't have what's required
+    $uri = "$envUrl/api/v1/tokens/lookup"
+    Write-Host -ForegroundColor cyan -Object "Token Permissions Check$logmsg`: POST $uri"
+    $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:token`"}"
+    if (($requirePerms | Where-Object { $_ -notin $res.scopes }).count) {
+        write-host -ForegroundColor Red "Failed Token Permission check. Token requires: $($requirePerms -join ',')"
+        write-host -ForegroundColor Red "Token provided only had: $($res.scopes -join ',')"
+        exit
+    }
+}
+
 if (!$noCheckCompatibility) {
     <#
-        Determine what type environment we have? This script will only work on tenants 
-        
-        SaaS tenant = https://*.live.dynatrace.com
-        Managed tenant = https://*/e/UUID
-        Managed Cluster = https://*
-    #>
+		Determine what type environment we have? This script will only work on tenants 
+		
+		SaaS tenant = https://*.live.dynatrace.com
+		Managed tenant = https://*/e/UUID
+		Managed Cluster = https://*
+	#>
     $envType = 'cluster'
     if ($script:dtenv -like "*.live.dynatrace.com") {
         $envType = 'env'
@@ -118,26 +145,11 @@ if (!$noCheckCompatibility) {
         write-error "'$script:dtenv' looks like an invalid URL (and Clusters are not supported by this script)"
         return
     }
-    
-    # Environment version check - cancel out if too old 
-    $uri = "$baseURL/config/clusterversion"
-    Write-Host -ForegroundColor cyan -Object "Cluster Version Check: $uri"
-    $res = Invoke-RestMethod -Method GET -Headers $headers -Uri $uri 
-    $envVersion = $res.version -split '\.'
-    if ($envVersion -and ([int]$envVersion[0]) -ne 1 -and ([int]$envVersion[1]) -lt 176) {
-        write-host "Failed Environment version check - Expected: > 1.176 - Got: $($res.version)"
-        return
-    }
-
-    # Token has required Perms Check - cancel out if it doesn't have what's required
-    $uri = "$baseURL/tokens/lookup"
-    Write-Host -ForegroundColor cyan -Object "Token Permissions Check: $uri"
-    $res = Invoke-RestMethod -Method POST -Headers $headers -Uri $uri -body "{ `"token`": `"$script:token`"}"
-    if (($script:tokenPermissionRequirements | Where-Object { $_ -notin $res.scopes }).count) {
-        write-host "Failed Token Permission check. Token requires: $($script:tokenPermissionRequirements -join ',')"
-        write-host "Token provided only had: $($res.scopes -join ',')"
-        return
-    }
+		
+    $_eap = $ErrorActionPreference; $ErrorActionPreference = 'stop'
+    confirm-supportedClusterVersion 206
+    confirm-requireTokenPerms $script:token $script:tokenPermissionRequirements
+    $ErrorActionPreference = $_eap
 }
 
 $baseURL = "$script:dtenv/api/v2"
@@ -146,11 +158,17 @@ try {
     $res = Invoke-RestMethod -uri $uri -Headers $headers -Method GET -ErrorAction Stop
 }
 catch {
-    Write-Error $_.Exception.Response
-    exit
+    if (($_.Exception.Response.StatusCode | ConvertTo-Json) -eq '404') {
+        Write-Host -ForegroundColor Red "Recieved a 404 Error for the Audit Log API - Is Audit Logging enabled for this Tenant?"
+        exit
+    }
+    else {
+        Write-host -ForegroundColor Red ($_.Exception)
+        exit
+    }
 }
 
-$res.auditLogs
+# $res.auditLogs
 
 # if ($summary) {
 #     $summaryout = $hostInfo | Group-Object -Property hostGroup | ForEach-Object {$mr = @{}}{
